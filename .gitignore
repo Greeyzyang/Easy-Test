@@ -1,0 +1,14 @@
+.env
+.DS_Store
+__pycache__/
+*.py[cod]
+*.log
+celerybeat-schedule.db
+.pytest_cache/
+node_modules/
+test.db
+.idea/
+.cursor/
+.qoder/
+dist/
+build/
