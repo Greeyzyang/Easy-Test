@@ -49,15 +49,15 @@ jobs:
           source: "docker-compose.prod.yml,.env"
           target: "/data/easy-test"
       - uses: appleboy/ssh-action@v1.0.0
+        env:
+          GHCR_USER: ${{ github.repository_owner }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
           envs: GHCR_USER,GHCR_PAT
-          env:
-            GHCR_USER: ${{ github.repository_owner }}
-            GHCR_PAT: ${{ secrets.GHCR_PAT }}
           script: |
             cd /data/easy-test
             docker login ghcr.io -u "$GHCR_USER" -p "$GHCR_PAT"
