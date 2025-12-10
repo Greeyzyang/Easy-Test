@@ -4,7 +4,8 @@ from app.config import DATABASE_URL
 from typing import AsyncGenerator, Any, Dict, Optional
 from fastapi import Depends, Request, HTTPException
 from fastapi_users.db import SQLAlchemyUserDatabase
-from app.models.user import User, Base
+from app.models.user import User
+from app.models.base_model import Base
 import logging
 import json
 from passlib.context import CryptContext
@@ -69,21 +70,21 @@ class CustomSQLAlchemyUserDatabase(SQLAlchemyUserDatabase):
                     logger.debug(f"移除不支持的字段: {key}")
                     create_dict_copy.pop(key, None)
             
-            # 添加 _permissions 字段
-            if "_permissions" not in create_dict_copy and "permissions" in create_dict_real:
+            # 统一使用 permissions 列，写入 JSON 字符串
+            if "permissions" in create_dict_real:
                 permissions = create_dict_real["permissions"]
                 if isinstance(permissions, list):
-                    create_dict_copy["_permissions"] = json.dumps(permissions)
+                    create_dict_copy["permissions"] = json.dumps(permissions)
                 elif isinstance(permissions, str):
                     try:
                         json.loads(permissions)  # 验证是 JSON
-                        create_dict_copy["_permissions"] = permissions
-                    except:
-                        create_dict_copy["_permissions"] = '[]'
+                        create_dict_copy["permissions"] = permissions
+                    except Exception:
+                        create_dict_copy["permissions"] = '[]'
                 else:
-                    create_dict_copy["_permissions"] = '[]'
-            elif "_permissions" not in create_dict_copy:
-                create_dict_copy["_permissions"] = '[]'
+                    create_dict_copy["permissions"] = '[]'
+            elif "permissions" not in create_dict_copy:
+                create_dict_copy["permissions"] = '[]'
             
             # 检查 hashed_password 是否存在
             if "hashed_password" not in create_dict_copy or not create_dict_copy["hashed_password"]:
@@ -138,17 +139,20 @@ async_session_maker = async_sessionmaker(
     class_=AsyncSession
 )
 
-# 同步引擎和会话，供 Celery 任务使用
+# 生成同步数据库URL，替换 aiomysql -> pymysql（用于 Celery/Beat 同步引擎）
+SYNC_DATABASE_URL = DATABASE_URL.replace("+aiomysql", "+pymysql") if "+aiomysql" in DATABASE_URL else DATABASE_URL
+
+# 为 sqlite 场景设置 connect_args，否则使用空字典，避免向非 sqlite 驱动传入 check_same_thread
+_sync_connect_args = {"check_same_thread": False} if (SYNC_DATABASE_URL.startswith("sqlite") or "sqlite" in SYNC_DATABASE_URL) else {}
+
 sync_engine = create_engine(
-    DATABASE_URL,
+    SYNC_DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=3600,
     echo=True,
     pool_size=5,
     max_overflow=10,
-    connect_args={
-        "check_same_thread": False if "sqlite" in DATABASE_URL else None
-    }
+    connect_args=_sync_connect_args
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
@@ -169,6 +173,29 @@ async def create_db_and_tables():
         logger.info("开始创建数据库表")
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # 确保 users 表存在 permissions 列（方案B统一字段）
+            def _ensure_permissions_column(sync_conn):
+                from sqlalchemy import text
+                try:
+                    # 检查列是否存在（MySQL）
+                    check_sql = text(
+                        """
+                        SELECT COUNT(*) AS cnt
+                        FROM information_schema.columns
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'users'
+                          AND column_name = 'permissions'
+                        """
+                    )
+                    result = sync_conn.execute(check_sql).scalar()
+                    if not result:
+                        logger.info("users 表缺少 permissions 列，正在补充…")
+                        sync_conn.execute(text("ALTER TABLE users ADD COLUMN permissions TEXT NULL"))
+                        logger.info("已添加 users.permissions 列")
+                except Exception as e:
+                    logger.warning(f"检查/添加 permissions 列失败：{e}")
+
+            await conn.run_sync(_ensure_permissions_column)
         logger.info("数据库表创建成功")
     except Exception as e:
         logger.error(f"创建数据库表时出错: {str(e)}")
@@ -200,4 +227,3 @@ async def get_user_db(session: AsyncSession = Depends(get_db)):
         logger.error(f"用户数据库会话错误: {str(e)}")
         await session.rollback()
         raise
-

@@ -177,6 +177,84 @@ class FunctionService:
             print(f"DEBUG: get_function error: {error_msg}")
             return False, None, "", error_msg
 
+    async def execute_code(self, code: str, entry_name: Optional[str], args: list) -> tuple[bool, Any, str, str]:
+        try:
+            stdout = StringIO()
+            stderr = StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                local_vars = {}
+                allowed_builtins = {
+                    'int': int,
+                    'str': str,
+                    'float': float,
+                    'list': list,
+                    'dict': dict,
+                    'len': len,
+                    'print': print,
+                    'sum': sum,
+                    'max': max,
+                    'min': min,
+                    'range': range,
+                    'isinstance': isinstance,
+                    'Exception': Exception,
+                    '__import__': __import__,
+                }
+                global_vars = {
+                    "__builtins__": allowed_builtins,
+                    "datetime": datetime,
+                }
+                try:
+                    exec(code, global_vars, local_vars)
+                    func_obj = None
+                    if entry_name:
+                        func_obj = local_vars.get(entry_name)
+                        if not func_obj:
+                            return False, None, stdout.getvalue(), stderr.getvalue() + f"\nFunction {entry_name} not defined in code"
+                    else:
+                        callables = [(k, v) for k, v in local_vars.items() if callable(v)]
+                        if len(callables) == 1:
+                            func_obj = callables[0][1]
+                        elif len(callables) == 0:
+                            return False, None, stdout.getvalue(), stderr.getvalue() + "\nNo callable found in code"
+                        else:
+                            names = ", ".join([k for k, _ in callables])
+                            return False, None, stdout.getvalue(), stderr.getvalue() + f"\nMultiple callables found: {names}. Provide entry_name."
+                    processed_args = []
+                    try:
+                        signature = inspect.signature(func_obj)
+                        params = list(signature.parameters.values())
+                        if len(args) != len(params):
+                            return False, None, stdout.getvalue(), stderr.getvalue() + f"\nFunction expected {len(params)} arguments, but received {len(args)}"
+                        for i, arg_str in enumerate(args):
+                            param = params[i]
+                            annotation = param.annotation
+                            try:
+                                if annotation is inspect.Parameter.empty or annotation is str:
+                                    processed_args.append(arg_str)
+                                elif annotation is int:
+                                    processed_args.append(int(arg_str))
+                                elif annotation is float:
+                                    processed_args.append(float(arg_str))
+                                elif annotation is bool:
+                                    processed_args.append(str(arg_str).lower() == 'true')
+                                else:
+                                    processed_args.append(arg_str)
+                            except ValueError as ve:
+                                return False, None, stdout.getvalue(), stderr.getvalue() + f"\nInvalid argument type for parameter '{param.name}': Cannot convert '{arg_str}' to {getattr(annotation,'__name__',str(annotation))}. {ve}"
+                    except Exception as e:
+                        return False, None, stdout.getvalue(), stderr.getvalue() + f"\nError processing function parameters: {e}"
+                    if asyncio.iscoroutinefunction(func_obj):
+                        result = await func_obj(*processed_args)
+                    else:
+                        result = func_obj(*processed_args)
+                    return True, result, stdout.getvalue(), stderr.getvalue()
+                except Exception as e:
+                    error_msg = f"Error executing code: {str(e)}\n{traceback.format_exc()}"
+                    return False, None, stdout.getvalue(), stderr.getvalue() + "\n" + error_msg
+        except Exception as e:
+            error_msg = f"Error preparing execution: {str(e)}\n{traceback.format_exc()}"
+            return False, None, "", error_msg
+
     async def create_function(self, name: str, code: str, description: str = "") -> Function:
         """创建新函数
         

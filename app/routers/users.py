@@ -12,6 +12,7 @@ from fastapi_users.db import SQLAlchemyUserDatabase
 from app.config import SECRET
 from app.database import User, get_user_db, CustomSQLAlchemyUserDatabase, get_db
 from app.schemas.user import UserCreate, UserRead, UserUpdate
+from app.services.email_service import EmailService
 from passlib.context import CryptContext
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,13 +20,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # 设置日志
 logger = logging.getLogger(__name__)
 
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 
 def get_jwt_strategy():
     return JWTStrategy(secret=SECRET, lifetime_seconds=60*60*12)
 
 # Cookie 认证
-cookie_transport = CookieTransport(cookie_name="X-Token")
+cookie_transport = CookieTransport(
+    cookie_name="X-Token",
+    cookie_secure=False,
+    cookie_samesite="lax",
+    cookie_path="/",
+)
 cookie_auth_backend = AuthenticationBackend(
     name="jwt-cookie",
     transport=cookie_transport,
@@ -45,13 +51,13 @@ class UserManager(BaseUserManager[User, str]):
     verification_token_secret = SECRET
     password_helper = pwd_context
 
+    def parse_id(self, value: any) -> str:
+        return str(value)
+
     async def validate_password(self, password: str, hashed_password: Optional[str] = None) -> bool:
         if hashed_password:
             return self.password_helper.verify_and_update(password, hashed_password)[0]
         return True
-
-    def parse_id(self, id: str) -> str:
-        return str(id)
 
     async def create(
         self,
@@ -115,6 +121,20 @@ class UserManager(BaseUserManager[User, str]):
                 raise HTTPException(status_code=500, detail="密码哈希失败")
                 
             user_dict["hashed_password"] = hashed_password
+
+            # 若未提供用户名，则使用邮箱或其本地部分作为默认用户名
+            username = user_dict.get("username")
+            email = user_dict.get("email")
+            if not username:
+                if email:
+                    try:
+                        local_part = email.split("@")[0]
+                        user_dict["username"] = local_part or email
+                    except Exception:
+                        user_dict["username"] = email
+                else:
+                    # 如果没有邮箱（不太可能），生成一个随机用户名
+                    user_dict["username"] = f"user_{uuid.uuid4().hex[:8]}"
             
             # 添加额外字段（如果需要）
             if "is_active" not in user_dict:
@@ -143,46 +163,49 @@ class UserManager(BaseUserManager[User, str]):
             else:
                 raise HTTPException(status_code=500, detail=f"创建用户失败: {str(e)}")
 
-    async def authenticate(self, credentials_id: str, password: str) -> Optional[User]:
-        """验证用户凭据"""
-        try:
-            user = await self.get_by_email(credentials_id)
-            if user is None:
-                return None
-            
-            verified = self.password_helper.verify(password, user.hashed_password)
-            if not verified:
-                return None
-                
-            return user
-        except Exception as e:
-            logger.error(f"认证时出错: {str(e)}")
-            return None
-
-    async def create_access_token(self, user):
-        payload = {
-            "sub": str(user.id),
-            "email": user.email,
-            "aud": "fastapi-users:auth",  # 添加 audience 字段
-            "is_active": user.is_active,
-            "is_verified": user.is_verified,
-            "is_superuser": user.is_superuser,
-            'exp': int(time.time()) + 60*60*12
-        }
-        return generate_jwt(payload, SECRET)
-
     async def on_after_register(self, user: User, request: Optional[Request] = None):
         logger.info(f"用户 {user.id} ({user.email}) 已注册成功.")
+        try:
+            email_service = EmailService()
+            ok = await email_service.send_welcome_email(to_email=user.email, username=user.email)
+            if ok:
+                logger.info(f"欢迎邮件发送成功 -> {user.email}")
+            else:
+                logger.warning(f"欢迎邮件发送返回 False（可能未投递） -> {user.email}")
+        except Exception as e:
+            logger.error(f"发送欢迎邮件失败: {e}")
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Optional[Request] = None
     ):
         logger.info(f"用户 {user.id} 忘记了密码. 重置令牌: {token}")
+        try:
+            email_service = EmailService()
+            ok = await email_service.send_password_reset_email(
+                to_email=user.email, username=user.email, token=token
+            )
+            if ok:
+                logger.info(f"密码重置邮件发送成功 -> {user.email}")
+            else:
+                logger.warning(f"密码重置邮件发送返回 False（可能未投递） -> {user.email}")
+        except Exception as e:
+            logger.error(f"发送密码重置邮件失败: {e}")
 
     async def on_after_request_verify(
         self, user: User, token: str, request: Optional[Request] = None
     ):
         logger.info(f"为用户 {user.id} 请求验证. 验证令牌: {token}")
+        try:
+            email_service = EmailService()
+            ok = await email_service.send_verification_email(
+                to_email=user.email, username=user.email, token=token
+            )
+            if ok:
+                logger.info(f"邮箱验证邮件发送成功 -> {user.email}")
+            else:
+                logger.warning(f"邮箱验证邮件发送返回 False（可能未投递） -> {user.email}")
+        except Exception as e:
+            logger.error(f"发送邮箱验证邮件失败: {e}")
 
 
 async def get_user_db(session: AsyncSession = Depends(get_db)):
@@ -216,11 +239,3 @@ __all__ = [
     "current_superuser",
     "router"
 ]
-
-
-
-
-
-
-
-
