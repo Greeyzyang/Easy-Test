@@ -15,16 +15,23 @@ class UserRead(schemas.BaseUser[str]):
     @classmethod
     def parse_permissions(cls, v):
         """将字符串形式的权限转换为列表"""
+        # 兼容 None、字符串(JSON)与列表三种输入，统一返回列表
+        if v is None:
+            return []
         if isinstance(v, str):
             try:
-                return json.loads(v)
-            except:
+                parsed = json.loads(v)
+                return parsed if isinstance(parsed, list) else []
+            except Exception:
                 return []
-        return v
+        if isinstance(v, list):
+            return v
+        # 其他类型一律回退为空列表，避免 Pydantic v2 校验错误
+        return []
 
 
 class UserCreate(schemas.BaseUserCreate):
-    username: str
+    username: Optional[str] = None
     permissions: List[str] = Field(default_factory=list)
 
 

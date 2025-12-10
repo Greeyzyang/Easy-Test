@@ -64,7 +64,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
-
 # 在用户注册时
 def register_user(user_input_password: str):
     hashed_password = hash_password(user_input_password)

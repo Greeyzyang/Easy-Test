@@ -68,3 +68,7 @@ class BaseInterface(BaseModel):
     params: Optional[Dict[str, Any]] = Field(None, description="请求参数")
     body: Optional[Dict[str, Any]] = Field(None, description="请求体")
     module_id: str = Field(..., description="所属模块ID")    
+
+class KBQueryRequest(BaseModel):
+    question: str
+    top_k: int = 4
