@@ -71,6 +71,8 @@ jobs:
           source: "docker-compose.prod.yml,.env"
           target: "/easy-test"
           debug: true
+          timeout: 600
+          command_timeout: 600
       - uses: appleboy/ssh-action@v1.0.0
         env:
           GHCR_USER: ${{ env.OWNER_LC }}
@@ -81,7 +83,9 @@ jobs:
           password: ${{ secrets.SSH_PASSWORD }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           envs: GHCR_USER,GHCR_PAT
-          script: |
+          timeout: 600
+          command_timeout: 1800
+        script: |
             set -euo pipefail
             echo "[Deploy] Host: $(hostname), User: $(whoami)"
             cd /easy-test
@@ -111,7 +115,11 @@ jobs:
             echo "[Deploy] Compose config preview:"
             $DC -f docker-compose.prod.yml config || { echo "ERROR: compose config failed"; exit 1; }
             echo "[Deploy] Pull images"
-            $DC -f docker-compose.prod.yml pull
+            $DC -f docker-compose.prod.yml pull --quiet mysql redis || true
+            $DC -f docker-compose.prod.yml pull --quiet backend
+            $DC -f docker-compose.prod.yml pull --quiet celery_worker
+            $DC -f docker-compose.prod.yml pull --quiet celery_beat
+            $DC -f docker-compose.prod.yml pull --quiet frontend
             echo "[Deploy] Local images (top 20)"
             docker images | head -n 20 || true
             echo "[Deploy] Up services"
