@@ -45,21 +45,48 @@ jobs:
       - name: Set lowercase owner
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
       - uses: appleboy/scp-action@v0.1.7
+        if: ${{ secrets.SSH_PRIVATE_KEY != '' || secrets.SSH_PASSWORD != '' }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "docker-compose.prod.yml,.env"
           target: "/data/easy-test"
       - uses: appleboy/ssh-action@v1.0.0
+        if: ${{ secrets.SSH_PRIVATE_KEY != '' || secrets.SSH_PASSWORD != '' }}
         env:
           GHCR_USER: ${{ env.OWNER_LC }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           envs: GHCR_USER,GHCR_PAT
           script: |
             cd /data/easy-test
             docker login ghcr.io -u "$GHCR_USER" -p "$GHCR_PAT"
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d
+
+  deploy_self_hosted:
+    runs-on: self-hosted
+    needs: build_and_push
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set lowercase owner
+        run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+      - name: Upload files
+        run: scp -o StrictHostKeyChecking=no docker-compose.prod.yml .env "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/data/easy-test/"
+      - name: Remote deploy
+        env:
+          GHCR_USER: ${{ env.OWNER_LC }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+        run: |
+          ssh -o StrictHostKeyChecking=no "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << 'EOF'
+          cd /data/easy-test
+          docker login ghcr.io -u "$GHCR_USER" -p "$GHCR_PAT"
+          docker compose -f docker-compose.prod.yml pull
+          docker compose -f docker-compose.prod.yml up -d
+          EOF
