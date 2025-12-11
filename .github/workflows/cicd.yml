@@ -68,8 +68,35 @@ jobs:
           key: ${{ env.SSH_PRIVATE_KEY }}
           envs: GHCR_USER,GHCR_PAT
           script: |
+            set -euo pipefail
+            echo "[Deploy] Host: $(hostname), User: $(whoami)"
             cd /easy-test
-            docker login ghcr.io -u "$GHCR_USER" -p "$GHCR_PAT"
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d
-
+            echo "[Deploy] Working dir: $(pwd)"
+            echo "[Deploy] Files:"
+            ls -la
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "ERROR: docker not installed"
+              exit 1
+            fi
+            if docker compose version >/dev/null 2>&1; then
+              DC="docker compose"
+            elif command -v docker-compose >/dev/null 2>&1; then
+              DC="docker-compose"
+            else
+              echo "ERROR: docker compose not installed"
+              exit 1
+            fi
+            if [ -n "$GHCR_PAT" ]; then
+              echo "[Deploy] Login GHCR as $GHCR_USER"
+              docker login ghcr.io -u "$GHCR_USER" -p "$GHCR_PAT"
+            else
+              echo "[Deploy] GHCR_PAT not set, assuming public images"
+            fi
+            echo "[Deploy] Compose config preview:"
+            $DC -f docker-compose.prod.yml config || { echo "ERROR: compose config failed"; exit 1; }
+            echo "[Deploy] Pull images"
+            $DC -f docker-compose.prod.yml pull
+            echo "[Deploy] Up services"
+            $DC -f docker-compose.prod.yml up -d
+            echo "[Deploy] Services status"
+            $DC ps
