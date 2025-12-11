@@ -52,11 +52,7 @@ jobs:
           target: "/data/easy-test"
       - uses: appleboy/ssh-action@v1.0.0
         env:
-<<<<<<< HEAD
-          GHCR_USER: ${{ github.repository_owner }}
-=======
           GHCR_USER: ${{ env.OWNER_LC }}
->>>>>>> develop-test
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
         with:
           host: ${{ secrets.SSH_HOST }}
