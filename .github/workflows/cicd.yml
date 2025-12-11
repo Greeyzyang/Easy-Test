@@ -71,8 +71,8 @@ jobs:
           source: "docker-compose.prod.yml,.env"
           target: "/easy-test"
           debug: true
-          timeout: 600
-          command_timeout: 600
+          timeout: 10m
+          command_timeout: 10m
       - uses: appleboy/ssh-action@v1.0.0
         env:
           GHCR_USER: ${{ env.OWNER_LC }}
@@ -83,9 +83,9 @@ jobs:
           password: ${{ secrets.SSH_PASSWORD }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           envs: GHCR_USER,GHCR_PAT
-          timeout: 600
-          command_timeout: 1800
-          script: |
+          timeout: 10m
+          command_timeout: 30m
+         script: |
             set -euo pipefail
             echo "[Deploy] Host: $(hostname), User: $(whoami)"
             cd /easy-test
