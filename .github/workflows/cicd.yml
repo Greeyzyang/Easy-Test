@@ -125,4 +125,4 @@ jobs:
             echo "[Deploy] Up services"
             $DC -f docker-compose.prod.yml up -d
             echo "[Deploy] Services status"
-            $DC ps
+            $DC -f docker-compose.prod.yml ps
