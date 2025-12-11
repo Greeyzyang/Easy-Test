@@ -40,32 +40,35 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build_and_push
+    env:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - name: Set lowercase owner
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
       - uses: appleboy/scp-action@v0.1.7
-        if: ${{ secrets.SSH_PRIVATE_KEY != '' || secrets.SSH_PASSWORD != '' }}
+        if: ${{ env.SSH_PRIVATE_KEY != '' || env.SSH_PASSWORD != '' }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          password: ${{ env.SSH_PASSWORD }}
+          key: ${{ env.SSH_PRIVATE_KEY }}
           source: "docker-compose.prod.yml,.env"
-          target: "/data/easy-test"
+          target: "/easy-test"
       - uses: appleboy/ssh-action@v1.0.0
-        if: ${{ secrets.SSH_PRIVATE_KEY != '' || secrets.SSH_PASSWORD != '' }}
+        if: ${{ env.SSH_PRIVATE_KEY != '' || env.SSH_PASSWORD != '' }}
         env:
           GHCR_USER: ${{ env.OWNER_LC }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          password: ${{ env.SSH_PASSWORD }}
+          key: ${{ env.SSH_PRIVATE_KEY }}
           envs: GHCR_USER,GHCR_PAT
           script: |
-            cd /data/easy-test
+            cd /easy-test
             docker login ghcr.io -u "$GHCR_USER" -p "$GHCR_PAT"
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d
