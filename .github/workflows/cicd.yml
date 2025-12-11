@@ -85,7 +85,7 @@ jobs:
           envs: GHCR_USER,GHCR_PAT
           timeout: 600
           command_timeout: 1800
-        script: |
+          script: |
             set -euo pipefail
             echo "[Deploy] Host: $(hostname), User: $(whoami)"
             cd /easy-test
