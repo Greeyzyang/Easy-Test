@@ -3,7 +3,7 @@ from sqlalchemy.orm import DeclarativeBase
 from app.config import DATABASE_URL
 from typing import AsyncGenerator, Any, Dict, Optional
 from fastapi import Depends, Request, HTTPException
-from fastapi_users.db import SQLAlchemyUserDatabase
+from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from app.models.user import User
 from app.models.base_model import Base
 import logging

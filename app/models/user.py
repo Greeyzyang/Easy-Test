@@ -2,7 +2,7 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy import Column, String, Boolean, DateTime, func, Text, CHAR
 from datetime import datetime
-from fastapi_users.db import SQLAlchemyBaseUserTable
+from fastapi_users_db_sqlalchemy import SQLAlchemyBaseUserTable
 import uuid
 import json
 from passlib.context import CryptContext

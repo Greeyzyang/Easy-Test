@@ -31,7 +31,7 @@ import logging
 from app.config import SECRET
 from fastapi_users.jwt import decode_jwt
 import time
-from fastapi_users.db import SQLAlchemyUserDatabase
+from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from passlib.context import CryptContext
 import uuid
 from datetime import datetime

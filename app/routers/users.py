@@ -8,7 +8,7 @@ from fastapi_users.authentication import (
     JWTStrategy,
     BearerTransport,
 )
-from fastapi_users.db import SQLAlchemyUserDatabase
+from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from app.config import SECRET
 from app.database import User, get_user_db, CustomSQLAlchemyUserDatabase, get_db
 from app.schemas.user import UserCreate, UserRead, UserUpdate
