@@ -1,10 +1,20 @@
-FROM python:3.11
+FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 WORKDIR /app
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libjpeg-dev \
+    zlib1g-dev \
+    libfreetype6-dev \
+    libpng-dev \
+    libffi-dev \
+    libssl-dev && \
+    rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml ./
 RUN pip install --upgrade pip setuptools wheel hatchling
 COPY app ./app
-RUN pip install .
+RUN pip install --prefer-binary .
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
