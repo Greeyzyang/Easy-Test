@@ -9,9 +9,6 @@ from passlib.context import CryptContext
 from sqlalchemy.orm import relationship
 from .base_model import Base
 
-class Base(DeclarativeBase):
-    pass
-
 class User(SQLAlchemyBaseUserTable, Base):
     __tablename__ = "users"
 
