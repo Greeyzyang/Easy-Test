@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <div class="page-title">编辑接口</div>
-    <interface-form ref="interfaceForm" :initial-data="initialData" />
+    <interface-form v-if="!loading" ref="interfaceForm" :initial-data="initialData" :key="initialData.id" />
     <div class="form-actions">
       <el-button @click="onCancel">取消</el-button>
       <el-button type="primary" @click="onSubmit" :loading="submitting">保存</el-button>
@@ -58,7 +58,7 @@ export default {
             message: '更新成功',
             type: 'success'
           })
-          this.$router.push('/interfaces/list')
+          this.$router.push('/design/interfaces')
         } else {
           throw new Error(response.message || '更新接口失败')
         }
@@ -70,7 +70,7 @@ export default {
       }
     },
     onCancel() {
-      this.$router.push('/interfaces/list')
+      this.$router.push('/design/interfaces')
     }
   }
 }

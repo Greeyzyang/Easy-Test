@@ -23,35 +23,14 @@ class User(SQLAlchemyBaseUserTable, Base):
     created_time = Column(DateTime)
     updated_time = Column(DateTime)
 
-
-    @hybrid_property
-    def permissions(self):
-        """获取权限列表"""
-        try:
-            return json.loads(self.permissions) if self.permissions else []
-        except:
-            return []
-
-    @permissions.setter
-    def permissions(self, value):
-        """设置权限列表"""
-        if isinstance(value, list):
-            self.permissions = json.dumps(value)
-        elif isinstance(value, str):
-            # 如果已经是JSON字符串，直接存储
-            try:
-                json.loads(value)  # 验证是否有效的JSON
-                self.permissions = value
-            except:
-                self.permissions = '[]'
-        else:
-            self.permissions = '[]'
-
     def has_permission(self, permission: str) -> bool:
-        """检查用户是否有指定权限"""
         if self.is_superuser:
             return True
-        return permission in self.permissions
+        try:
+            perms = json.loads(self.permissions) if self.permissions else []
+        except Exception:
+            perms = []
+        return permission in perms
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

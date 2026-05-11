@@ -8,19 +8,22 @@
       </div>
       <app-main />
     </div>
+    <global-assistant />
   </div>
 </template>
 
 <script>
 import { Navbar, Sidebar, AppMain } from './components'
 import ResizeMixin from './mixin/ResizeHandler'
+import GlobalAssistant from '@/components/Assistant/GlobalAssistant'
 
 export default {
   name: 'Layout',
   components: {
     Navbar,
     Sidebar,
-    AppMain
+    AppMain,
+    GlobalAssistant
   },
   mixins: [ResizeMixin],
   computed: {

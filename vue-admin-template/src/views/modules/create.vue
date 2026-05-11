@@ -72,7 +72,7 @@ export default {
               type: 'success'
             })
             // 创建成功后直接跳转到模块列表页
-            this.$router.push('/modules/list')
+            this.$router.push('/design/modules')
           })
         } else {
           return false
@@ -81,7 +81,7 @@ export default {
     },
     onCancel() {
       // 取消时直接返回模块列表页
-      this.$router.push('/modules/list')
+      this.$router.push('/design/modules')
     }
   }
 }

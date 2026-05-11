@@ -1,315 +1,77 @@
 import httpx
+import json
+import base64
+import io
 from fastapi import HTTPException
 from app.models import TestStep, Interface
 import time
 from jsonpath_rw import parse
-from typing import Dict, Any, Union, Optional
-from app.schemas.base_schemas import RequestType
+from typing import Dict, Optional
+from app.schemas.base_schemas import RequestType, VariableSource
 from app.services.function_service import FunctionService
 from app.schemas.teststep import JsonValueAssertionRule
 import re
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from app.models import TestStep, Interface, Project, Module
+
+from app.utils.execution_context import BaseExecutionContext
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
-
-class TestContext:
-    """测试上下文管理类，负责管理测试过程中的变量和状态"""
+class TestContext(BaseExecutionContext):
+    """测试上下文管理类（单例模式），继承自 BaseExecutionContext"""
     _instance = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance.variables = {}
-            cls._instance.last_response = {}
-            cls._instance.last_headers = {}
-            cls._instance.cookies = {}
             cls._instance.db = None
-            cls._instance.last_request_body = {}  # 保存最近一次请求体
         return cls._instance
 
     def set_db(self, db):
-        """设置数据库会话"""
         self.db = db
-        print(f"数据库会话已设置: {db}")
+        logger.info(f"数据库会话已设置: {db}")
 
     async def process_template_string(self, template_str: str) -> str:
-        """
-        处理包含 ${} 标记的字符串，支持变量替换和函数调用
-        
-        处理逻辑：
-        1. 检查输入字符串是否包含 ${...} 占位符
-        2. 对于每个占位符：
-           - 如果是函数调用（包含括号），执行函数并返回结果
-           - 如果是变量，从上下文中获取变量值
-        3. 替换所有占位符，返回处理后的字符串
-        
-        支持的语法：
-        - 变量替换：${variable_name}
-        - 函数调用：${function_name(arg1, arg2)}
-        
-        示例：
-        - 输入：template_str = "Hello ${name}, your age is ${get_age()}"
-        - 假设上下文中有 name="Alice"，get_age() 函数返回 25
-        - 输出：result = "Hello Alice, your age is 25"
-        
-        Args:
-            template_str: 可能包含 ${} 标记的字符串
-            
-        Returns:
-            str: 处理后的字符串，所有 ${} 占位符都被替换为实际值
-        """
-        # 1. 输入验证：检查字符串是否为空或非字符串类型
+        """在父类基础上增加函数调用 ${funcName(args)} 支持"""
         if not template_str or not isinstance(template_str, str):
             return template_str
-            
-        # 2. 定义内部函数，用于处理每个 ${...} 占位符
-        async def replace_func(match):
-            content = match.group(1)  # 提取 ${} 内的内容
-            try:
-                # 3. 检查是否是函数调用（包含括号）
-                if '(' in content and content.endswith(')'):
-                    # 函数调用处理
-                    func_part = content[content.index('(')+1:-1]  # 提取括号内的参数
-                    func_name = content[:content.index('(')]      # 提取函数名
-                    
-                    # 解析函数参数
-                    if func_part:  # 如果有实际的参数内容
-                        func_args = [arg.strip() for arg in func_part.split(',')]
-                    else:  # 没有参数
-                        func_args = []
-                    
-                    print(f"执行函数调用: {func_name}({func_args})")
-                    # 执行函数并返回结果
-                    return await self._execute_function(func_name, func_args)
-                else:
-                    # 4. 变量处理：从上下文中获取变量值
-                    var_value = await self.get_variable(content)
-                    print(f"获取变量 {content}: {var_value}")
-                    return str(var_value) if var_value is not None else content
-            except Exception as e:
-                # 5. 异常处理：如果处理失败，返回原始占位符
-                print(f"处理模板 '{content}' 时出错: {str(e)}")
-                return match.group(0)  # 失败时返回原始匹配字符串
-                
-        # 6. 执行模板替换
-        # 由于 re.sub 不支持异步函数，我们需要手动处理替换
-        # 先收集所有匹配项，然后倒序处理，避免替换操作改变后续匹配项的索引
+
         result_str = template_str
-        
-        # 使用正则表达式查找所有 ${...} 占位符
-        # re.finditer 返回迭代器，需要转换为列表才能倒序
-        matches = list(re.finditer(r'\${([^}]+)}', template_str))
-        
-        # 倒序处理，避免替换操作影响后续匹配项的索引
+        matches = list(re.finditer(r'\$\{([^}]+)}', template_str))
         for match in reversed(matches):
-            replacement = await replace_func(match)
-            # 使用切片进行替换，确保准确性
+            content = match.group(1).strip()
+            if '(' in content and content.endswith(')'):
+                func_part = content[content.index('(') + 1:-1]
+                func_name = content[:content.index('(')]
+                func_args = [arg.strip() for arg in func_part.split(',')] if func_part else []
+                replacement = await self._execute_function(func_name, func_args)
+            else:
+                var_value = await self.get_variable(content)
+                if var_value is None:
+                    logger.warning(f"变量 '{content}' 未在上下文中找到")
+                    return match.group(0)
+                replacement = str(var_value)
             result_str = result_str[:match.start()] + replacement + result_str[match.end():]
-        
-        print(f"模板处理完成: '{template_str}' -> '{result_str}'")
         return result_str
 
-    async def process_template_dict(self, data: dict) -> dict:
-        """处理字典中所有字符串类型的值
-        
-        Args:
-            data: 需要处理的字典
-            
-        Returns:
-            处理后的字典
-        """
-        if not data:
-            return data
-            
-        result = {}
-        for key, value in data.items():
-            if isinstance(value, str):
-                result[key] = await self.process_template_string(value)
-            elif isinstance(value, dict):
-                result[key] = await self.process_template_dict(value)
-            elif isinstance(value, list):
-                result[key] = await self.process_template_list(value)
-            else:
-                result[key] = value
-        return result
-
-    async def process_template_list(self, data: list) -> list:
-        """处理列表中所有字符串类型的值
-        
-        Args:
-            data: 需要处理的列表
-            
-        Returns:
-            处理后的列表
-        """
-        if not data:
-            return data
-            
-        result = []
-        for item in data:
-            if isinstance(item, str):
-                result.append(await self.process_template_string(item))
-            elif isinstance(item, dict):
-                result.append(await self.process_template_dict(item))
-            elif isinstance(item, list):
-                result.append(await self.process_template_list(item))
-            else:
-                result.append(item)
-        return result
-
     async def _execute_function(self, func_name: str, args: list) -> str:
-        """执行函数并返回结果
-        
-        Args:
-            func_name: 函数名
-            args: 函数参数列表
-            
-        Returns:
-            函数执行结果
-        """
+        """执行自定义函数"""
         try:
-
             if not self.db:
                 raise ValueError("数据库会话未设置")
-
             function_service = FunctionService(self.db)
             success, result, stdout, stderr = await function_service.execute_function(func_name, args)
-            
             if not success:
-                print(f"执行函数 {func_name} 失败:")
-                if stdout:
-                    print(f"标准输出: {stdout}")
-                if stderr:
-                    print(f"标准错误: {stderr}")
+                logger.error(f"执行函数 {func_name} 失败")
                 return ''
-                
             return str(result)
-                
         except Exception as e:
-            print(f"执行函数 {func_name} 时出错: {str(e)}")
+            logger.error(f"执行函数 {func_name} 时出错: {str(e)}")
             return ''
-
-    async def extract_variable(self, name: str, config: Union[str, dict]):
-        """提取变量
-        
-        Args:
-            name: 变量名
-            config: 提取配置, 可以是:
-                   - 字符串: 默认从response提取的jsonpath
-                   - 字典: 包含source和path的配置，如 {"source": "headers", "path": "Content-Type"}
-        """
-        try:
-            # 解析配置
-            path, source = await self._parse_extract_config(config)
-            if not source:
-                raise ValueError(f"未指定数据源")
-
-            # 打印调试信息
-            await self._print_debug_info(name, source, path)
-
-            # 根据数据源提取变量
-            value = await self._extract_value_from_source(source, path)
-            if value is not None:
-                self.variables[name] = value
-                print(f"提取到的变量值: {name} = {value}")
-            else:
-                print(f"未找到匹配的值: {path}")
-                
-        except Exception as e:
-            print(f"变量提取失败: {str(e)}")
-            return None
-
-    async def _parse_extract_config(self, config: Union[str, dict]) -> tuple:
-        """解析提取配置
-        
-        Args:
-            config: 提取配置
-            
-        Returns:
-            tuple: (path, source)
-        """
-        if isinstance(config, str):
-            return config, "response"
-        return config.get("path"), config.get("source", "").lower()
-
-    async def _print_debug_info(self, name: str, source: str, path: str):
-        """打印调试信息"""
-        print(f"正在提取变量 {name}，从 {source} 中获取 {path}")
-        print(f"当前 cookies: {self.cookies}")
-        print(f"当前 headers: {self.last_headers}")
-        print(f"当前 response: {self.last_response}")
-
-    async def _extract_value_from_source(self, source: str, path: str) -> Any:
-        """从指定数据源提取值
-        
-        Args:
-            source: 数据源
-            path: 提取路径
-            
-        Returns:
-            提取的值
-        """
-        if source == "response":
-            jsonpath_expr = parse(path)
-            matches = [match.value for match in jsonpath_expr.find(self.last_response)]
-            return matches[0] if matches else None
-        elif source == "headers":
-            return self.last_headers.get(path)
-        elif source == "cookies":
-            return self.cookies.get(path)
-        elif source == "body":  # 支持从请求体提取变量
-            jsonpath_expr = parse(path)
-            matches = [match.value for match in jsonpath_expr.find(self.last_request_body)]
-            return matches[0] if matches else None
-        else:
-            raise ValueError(f"不支持的数据源: {source}")
-
-    async def get_variable(self, name: str) -> Any:
-        """获取变量值，并递归处理其中的占位符"""
-        value = self.variables.get(name)
-        # 如果值是字符串且包含 ${}，递归处理
-        if isinstance(value, str) and '${' in value and '}' in value:
-            prev_value = None
-            # 防止死循环，只有值发生变化时才继续递归
-            while isinstance(value, str) and '${' in value and '}' in value and value != prev_value:
-                prev_value = value
-                value = await self.process_template_string(value)
-        return value
-
-    async def update_context(self, response_data: dict, headers: dict, cookies: dict):
-        """更新上下文数据"""
-        # 保证所有属性都是dict类型
-        if not isinstance(response_data, dict):
-            response_data = {'text': response_data}
-        if not isinstance(headers, dict):
-            headers = {}
-        if not isinstance(cookies, dict):
-            cookies = {}
-        self.last_response = response_data
-        self.last_headers = headers
-        self.cookies = cookies
-
-    async def clear(self):
-        """清除上下文数据"""
-        self.variables.clear()
-        if isinstance(self.last_response, dict):
-            self.last_response.clear()
-        else:
-            self.last_response = {}
-        if isinstance(self.last_headers, dict):
-            self.last_headers.clear()
-        else:
-            self.last_headers = {}
-        if isinstance(self.cookies, dict):
-            self.cookies.clear()
-        else:
-            self.cookies = {}
-        if isinstance(self.last_request_body, dict):
-            self.last_request_body.clear()
-        else:
-            self.last_request_body = {}
-        # 注意：不清除 db，因为它在整个测试套件执行期间都需要使用
-        print("上下文数据已清除，保留数据库会话")
 
 class HttpClient:
     """HTTP 客户端类，负责处理 HTTP 请求和响应"""
@@ -334,15 +96,15 @@ class HttpClient:
     @staticmethod
     async def _process_url_variables(path: str) -> str:
         """处理 URL 中的变量替换"""
-        print(f"处理 URL 中的变量替换: {path}")
-        print(f"当前上下文变量: {HttpClient._context.variables}")
+        logger.debug(f"处理 URL 中的变量替换: {path}")
+        logger.debug(f"当前上下文变量: {HttpClient._context.variables}")
         
         pattern = r'\${([^}]+)}'
         
         async def replace_var(match):
             var_name = match.group(1)
             var_value = await HttpClient._context.get_variable(var_name)
-            print(f"替换 URL 变量 {var_name}: ${{{var_name}}} -> {var_value}")
+            logger.debug(f"替换 URL 变量 {var_name}: ${{{var_name}}} -> {var_value}")
             return str(var_value) if var_value is not None else match.group(0)
         
         # 由于 re.sub 不支持异步函数，我们需要手动处理替换
@@ -379,7 +141,7 @@ class HttpClient:
         # base_url 在 TestreportService._initialize_test_context 中已设置
         base_url = HttpClient._context.variables.get('base_url', '').rstrip('/')
         if not base_url:
-            print("警告: base_url 未设置，可能导致请求失败")
+            logger.warning("base_url 未设置，可能导致请求失败")
         
         # 2. 获取接口的 URL 路径，并去除开头的斜杠
         path = interface.url.lstrip('/')
@@ -387,13 +149,13 @@ class HttpClient:
         # 3. 处理 URL 路径中的变量替换
         # 如果路径中包含 ${...} 占位符，会从上下文中获取对应的变量值进行替换
         if '${' in path and '}' in path:
-            print(f"检测到路径中的变量占位符: {path}")
+            logger.debug(f"检测到路径中的变量占位符: {path}")
             path = await HttpClient._process_url_variables(path)
-            print(f"变量替换后的路径: {path}")
+            logger.debug(f"变量替换后的路径: {path}")
         
         # 4. 拼接 base_url 和路径，形成完整的 URL
         full_url = f"{base_url}/{path}"
-        print(f"构建完整URL: {full_url}")
+        logger.debug(f"构建完整URL: {full_url}")
         
         return full_url
 
@@ -433,16 +195,45 @@ class HttpClient:
                 raise HTTPException(status_code=500, detail="数据库会话未提供")
             
             # 2. 从数据库获取关联的 Interface 对象
-            # 接口对象包含了请求方法、URL路径等信息
+            # 接口对象包含了请求方法、URL路径等信息，同时加载所属模块和项目以获取公共配置
             result = await db.execute(
-                select(Interface).where(Interface.id == teststep.interface_id)
+                select(Interface)
+                .options(
+                    selectinload(Interface.module).selectinload(Module.project)
+                )
+                .where(Interface.id == teststep.interface_id)
             )
             interface = result.scalar_one_or_none()
 
             if not interface:
                 raise HTTPException(status_code=404, detail=f"接口 {teststep.interface_id} 未找到")
                 
-            print(f"获取到接口: {interface.method} {interface.url}")
+            logger.info(f"获取到接口: {interface.method} {interface.url}")
+
+            # ==================== 项目公共配置加载 ====================
+            # 加载项目级公共变量和请求头
+            project_headers = {}
+            if interface.module and interface.module.project:
+                project = interface.module.project
+                # 注入项目级变量到上下文
+                if project.variables:
+                    try:
+                        p_vars = json.loads(project.variables) if isinstance(project.variables, str) else project.variables
+                        if isinstance(p_vars, dict):
+                            for k, v in p_vars.items():
+                                if k not in HttpClient._context.variables: # 不覆盖已存在的（如环境/步骤变量）
+                                    HttpClient._context.variables[k] = v
+                    except Exception as e:
+                        logger.error(f"解析项目公共变量失败: {str(e)}")
+                
+                # 准备项目级请求头
+                if project.headers:
+                    try:
+                        project_headers = json.loads(project.headers) if isinstance(project.headers, str) else project.headers
+                        if not isinstance(project_headers, dict):
+                            project_headers = {}
+                    except Exception as e:
+                        logger.error(f"解析项目公共请求头失败: {str(e)}")
                 
             # ==================== 客户端初始化阶段 ====================
             # 3. 初始化 HTTP 客户端
@@ -456,12 +247,42 @@ class HttpClient:
             
             # 处理请求体中的变量
             processed_body = await HttpClient._context.process_template_dict(teststep.body or {})
-            # 处理请求头中的变量
-            processed_headers = await HttpClient._context.process_template_dict(teststep.headers or {})
+            
+            # 处理请求头中的变量（合并项目级 Header）
+            # 优先级：步骤 Header > 接口 Header > 项目 Header
+            final_headers = project_headers.copy()
+            # 这里先获取接口定义的默认 Header (如果有)
+            if interface.headers:
+                final_headers.update(interface.headers)
+            # 再合并当前步骤的 Header
+            if teststep.headers:
+                final_headers.update(teststep.headers)
+                
+            # 关键日志：仅在未找到 Token 时进行提醒
+            if 'X-Auth-Token' not in HttpClient._context.variables:
+                logger.warning("X-Auth-Token NOT found in variables")
+
+            # 如果上下文没有 X-Auth-Token，则尝试从客户端 Cookie 中回退填充
+            if 'X-Auth-Token' not in HttpClient._context.variables and HttpClient._client:
+                try:
+                    c = dict(HttpClient._client.cookies)
+                    if 'gin2_token' in c:
+                        HttpClient._context.variables['X-Auth-Token'] = c['gin2_token']
+                        logger.info(f"从Cookie回退填充 X-Auth-Token: {str(c['gin2_token'])[:10]}...")
+                except Exception:
+                    pass
+
+            # 自动添加 X-Auth-Token (如果存在)
+            if 'X-Auth-Token' in HttpClient._context.variables:
+                final_headers['X-Auth-Token'] = HttpClient._context.variables['X-Auth-Token']
+                logger.debug("已自动将 X-Auth-Token 添加到请求头")
+
+            processed_headers = await HttpClient._context.process_template_dict(final_headers)
+            logger.debug("请求头处理完成")
+            
             # 处理查询参数中的变量
             processed_params = await HttpClient._context.process_template_dict(teststep.params or {})
-            
-            print(f"请求参数处理完成 - Body: {len(processed_body)}, Headers: {len(processed_headers)}, Params: {len(processed_params)}")
+            logger.debug("请求参数处理完成")
 
             # 保存请求体到上下文，便于后续变量提取
             HttpClient._context.last_request_body = processed_body.copy() if isinstance(processed_body, dict) else processed_body
@@ -473,20 +294,37 @@ class HttpClient:
             # - 拼接接口的 URL 路径
             # - 处理路径中的变量替换
             full_url = await HttpClient._build_url(interface)
-            print(f"构建完整URL: {full_url}")
             
             # ==================== 请求发送阶段 ====================
             # 6. 根据请求类型发送 HTTP 请求
             
+            # 检查 Headers 中是否有未替换的变量，如果有，添加到错误信息中提示用户
+            unresolved_vars = []
+            headers_to_remove = []
+            for k, v in processed_headers.items():
+                if isinstance(v, str) and '${' in v and '}' in v:
+                    warning_msg = f"Header '{k}' 包含未替换变量: {v}"
+                    logger.warning(warning_msg)
+                    unresolved_vars.append(warning_msg)
+                    
+                    # 特殊处理：如果 Auth Token 未替换，直接移除，避免发送无效 Token
+                    # 这可以防止服务端因收到无效 Token 而产生异常行为（如设置错误的 Cookie）
+                    if k in ['X-Auth-Token', 'Authorization']:
+                        headers_to_remove.append(k)
+            
+            for k in headers_to_remove:
+                logger.warning(f"移除未替换的 Header: {k}")
+                processed_headers.pop(k)
+
             # 检查是否是登录请求（需要特殊处理）
             if await HttpClient._is_login_request(teststep):
-                print("检测到登录请求，使用特殊处理逻辑")
+                logger.info("开始登录")
                 response = await HttpClient._handle_login_request(
                     client, full_url, processed_body, processed_headers
                 )
             else:
                 # 发送普通请求
-                print(f"发送 {interface.method} 请求到 {full_url}")
+                logger.info(f"发送 {interface.method} 请求到 {full_url}")
                 response = await HttpClient._send_request(
                     client, 
                     interface.method,
@@ -500,12 +338,16 @@ class HttpClient:
             
             # ==================== 响应处理阶段 ====================
             # 7. 处理响应数据
-            # 这一步会：
-            # - 解析响应内容
-            # - 执行断言验证
-            # - 检查状态码
-            # - 计算执行耗时
             result = await HttpClient._process_response(response, teststep, start_time)
+            
+            # 如果有未替换的变量且请求失败（401/403），将警告添加到错误信息中
+            if unresolved_vars and response.status_code in [401, 403]:
+                extra_msg = "; ".join(unresolved_vars)
+                if result.get("error_message"):
+                    result["error_message"] += f"; 警告: {extra_msg}"
+                else:
+                    result["error_message"] = f"警告: {extra_msg}"
+
             
             # ==================== 上下文更新阶段 ====================
             # 8. 更新测试上下文
@@ -518,13 +360,28 @@ class HttpClient:
             # 如果测试步骤配置了变量提取规则，会从响应中提取变量
             # 并保存到上下文中，供后续步骤使用
             await HttpClient._handle_variable_extraction(teststep)
+
+            # 自动尝试从 Cookie 中提取 gin2_token 并设置为 X-Auth-Token (针对 OVH 环境)
+            if HttpClient._client:
+                cookies = dict(HttpClient._client.cookies)
+                if 'gin2_token' in cookies:
+                    token = cookies['gin2_token']
+                    # 只有当变量中没有 X-Auth-Token 或者值不同时才更新
+                    current_token = HttpClient._context.variables.get('X-Auth-Token')
+                    if current_token != token:
+                        logger.info(f"自动从 Cookie 更新 X-Auth-Token: {token[:10]}...")
+                        HttpClient._context.variables['X-Auth-Token'] = token
+                else:
+                    # 登录接口请求后，如果没有 gin2_token，打印警告
+                    if await HttpClient._is_login_request(teststep):
+                        logger.warning("登录接口完成后，未在 Cookie 中找到 gin2_token")
             
-            print(f"请求执行完成，状态: {result['status']}, 耗时: {result['duration']:.2f}s")
+            logger.info(f"请求执行完成，状态: {result['status']}, 耗时: {result['duration']:.2f}s")
             return result
                 
         except Exception as e:
             # ==================== 异常处理阶段 ====================
-            print(f"请求执行失败: {str(e)}")
+            logger.error(f"请求执行失败: {str(e)}")
             return {
                 "status": "failed",
                 "error_message": str(e),
@@ -539,77 +396,122 @@ class HttpClient:
             headers = {}
         if params is None:
             params = {}
-        # 记录请求信息
-        print(f"发送请求: {method} {url}")
-        print(f"请求headers: {headers}")
-        print(f"请求payload: {body}")
-        print(f"请求params: {params}")
-        print(f"客户端cookies: {dict(client.cookies)}")
+            
+        # 检查 Headers 中是否有未替换的变量
+        for k, v in headers.items():
+            if isinstance(v, str) and '${' in v and '}' in v:
+                logger.warning(f"Header '{k}' 中包含未替换的变量: {v}，可能导致请求失败(如 401)")
         
-        # 根据不同的请求类型设置不同的参数
-        if method.upper() == "POST":
-            # 对于登录请求，强制使用表单提交
-            if url.endswith('/user/login/'):
-                return await client.request(
-                    method=method,
-                    url=url,
-                    data=body,  # 使用 data 而不是 json
-                    headers=headers,
-                    params=params
-                )
-            # 其他请求按照 request_type 处理
-            elif request_type == RequestType.JSON:
-                headers['Content-Type'] = 'application/json'
-                return await client.request(
-                    method=method,
-                    url=url,
-                    json=body,
-                    headers=headers,
-                    params=params
-                )
-            elif request_type == RequestType.FORM:
-                headers['Content-Type'] = 'application/x-www-form-urlencoded'
-                return await client.request(
-                    method=method,
-                    url=url,
-                    data=body,
-                    headers=headers,
-                    params=params
-                )
-            elif request_type == RequestType.FILE and file_config:
-                return await HttpClient._send_file_request(client, method, url, body, headers, file_config)
-        else:
-            # GET 请求参数使用 params
-            return await client.request(
-                method=method,
-                url=url,
-                params=params,
-                headers=headers
-            )
-
-    @staticmethod
-    async def _send_file_request(client, method, url, payload, headers, file_config):
+        # 记录请求信息
+        # 精简请求日志，仅保留必要信息
+        logger.debug(f"发送请求: {method} {url}")
+        
+        # 统一处理 body，支持 dict 和 list[dict]
+        data = {}
         files = {}
-        try:
+        
+        if isinstance(body, list):
+            # 处理列表形式的参数 (来自优化的表单)
+            for item in body:
+                if not isinstance(item, dict) or 'name' not in item:
+                    continue
+                name = item['name']
+                value = item.get('value')
+                param_type = item.get('type', 'string')
+                
+                if param_type == 'file':
+                    if value:
+                        # 检查是否是 Base64 格式
+                        if isinstance(value, str) and value.startswith('base64:'):
+                            try:
+                                file_info = json.loads(value[7:])
+                                filename = file_info.get('filename', 'unknown_file')
+                                base64_str = file_info.get('data', '')
+                                
+                                # 处理 data:image/png;base64,... 这种格式
+                                if ',' in base64_str:
+                                    base64_str = base64_str.split(',')[1]
+                                
+                                file_content = base64.b64decode(base64_str)
+                                files[name] = (filename, io.BytesIO(file_content))
+                            except Exception as e:
+                                logger.error(f"解析 Base64 文件失败: {str(e)}")
+                        else:
+                            # 传统的路径方式
+                            try:
+                                files[name] = open(value, 'rb')
+                            except Exception as e:
+                                logger.error(f"无法打开文件 {value}: {str(e)}")
+                    # 只要有文件，就属于表单提交的一部分，不需要单独修改 request_type
+                else:
+                    data[name] = value
+        else:
+            data = body
+
+        # 处理旧的文件配置
+        if file_config and isinstance(file_config, dict):
             for field_name, file_path in file_config.items():
                 try:
                     files[field_name] = open(file_path, 'rb')
                 except Exception as e:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"无法打开文件 {file_path}: {str(e)}"
+                    logger.error(f"无法打开文件 {file_path}: {str(e)}")
+
+        # 根据不同的请求类型设置不同的参数
+        try:
+            if method.upper() in ["POST", "PUT", "PATCH"]:
+                # 对于登录请求，强制使用表单提交
+                if url.endswith('/user/login/'):
+                    return await client.request(
+                        method=method,
+                        url=url,
+                        data=data,
+                        headers=headers,
+                        params=params
                     )
-            
-            return await client.request(
-                method,
-                url,
-                files=files,
-                data=payload,
-                headers=headers
-            )
+                # 其他请求按照 request_type 处理
+                elif request_type == RequestType.JSON:
+                    if 'Content-Type' not in headers:
+                        headers['Content-Type'] = 'application/json'
+                    return await client.request(
+                        method=method,
+                        url=url,
+                        json=data,
+                        headers=headers,
+                        params=params
+                    )
+                elif request_type == RequestType.FORM:
+                    # 如果有文件，httpx 会自动处理为 multipart/form-data
+                    # 如果没有文件，且未指定 Content-Type，则默认为 x-www-form-urlencoded
+                    if not files and 'Content-Type' not in headers:
+                        headers['Content-Type'] = 'application/x-www-form-urlencoded'
+                    
+                    return await client.request(
+                        method=method,
+                        url=url,
+                        data=data,
+                        files=files if files else None,
+                        headers=headers,
+                        params=params
+                    )
+            else:
+                # GET/DELETE 等请求
+                return await client.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                    headers=headers
+                )
         finally:
-            for file in files.values():
-                file.close()
+            # 关闭所有打开的文件
+            for f in files.values():
+                try:
+                    if isinstance(f, tuple):
+                        f[1].close()
+                    else:
+                        f.close()
+                except Exception:
+                    pass
+
 
     @staticmethod
     async def _process_response(response, teststep, start_time):
@@ -626,7 +528,92 @@ class HttpClient:
         if teststep.expected_response_code:
             if response.status_code != teststep.expected_response_code:
                 status = "failed"
-                error_messages.append(f"预期状态码: {teststep.expected_response_code}, 实际状态码: {response.status_code}")
+                msg = f"预期状态码: {teststep.expected_response_code}, 实际状态码: {response.status_code}"
+                
+                # 尝试从响应中提取具体的错误信息
+                if isinstance(response_json, dict):
+                    details_list = []
+                    
+                    # 1. 提取 detail (FastAPI 默认)
+                    if "detail" in response_json:
+                        d = response_json["detail"]
+                        if isinstance(d, list):
+                            # 处理 [{"loc": ["body", "price"], "msg": "value is not a valid float", ...}]
+                            for item in d:
+                                if isinstance(item, dict) and "loc" in item and "msg" in item:
+                                    # 简化 loc 显示，去掉 body/query 等前缀，只保留字段名
+                                    loc_parts = [str(x) for x in item["loc"] if x not in ("body", "query", "path")]
+                                    loc = ".".join(loc_parts)
+                                    details_list.append(f"{loc}: {item['msg']}" if loc else item['msg'])
+                                else:
+                                    details_list.append(str(item))
+                        else:
+                            details_list.append(str(d))
+                    
+                    # 2. 提取 message / msg
+                    if "message" in response_json:
+                        details_list.append(str(response_json["message"]))
+                    elif "msg" in response_json:
+                        details_list.append(str(response_json["msg"]))
+                    
+                    # 3. 提取 errors / error
+                    if "errors" in response_json:
+                        details_list.append(str(response_json["errors"]))
+                    if "error" in response_json:
+                         # 避免 error 和 errors 重复 (有些框架同时返回)
+                        if "errors" not in response_json or str(response_json["error"]) != str(response_json["errors"]):
+                            details_list.append(str(response_json["error"]))
+                    
+                    # 4. 提取 code (有时有用)
+                    if "code" in response_json:
+                        details_list.append(f"Code: {response_json['code']}")
+
+                    # 5. 提取 data (关键补充)
+                    if "data" in response_json:
+                        data_val = response_json["data"]
+                        # 只提取字典或列表类型的 data，且不为空
+                        if data_val and isinstance(data_val, (dict, list)):
+                             details_list.append(f"Data: {str(data_val)}")
+
+                    if details_list:
+                        # 去重并拼接
+                        unique_details = []
+                        seen = set()
+                        for item in details_list:
+                            if item not in seen:
+                                unique_details.append(item)
+                                seen.add(item)
+                        
+                        detail_str = "; ".join(unique_details)
+                        
+                        # 智能兜底：如果提取出的信息太短（例如只有 "validation error"），
+                        # 且原始响应体长度适中，则追加一部分原始响应体以防遗漏
+                        if len(detail_str) < 30 and len(str(response_json)) < 500:
+                             # 避免重复：如果 detail_str 已经是 response_json 的一部分，就不追加了
+                             raw_resp = str(response_json)
+                             if raw_resp not in detail_str:
+                                 # 截取前 100 字符
+                                 preview = raw_resp[:100] + "..." if len(raw_resp) > 100 else raw_resp
+                                 detail_str += f"; 原文: {preview}"
+
+                        # 最终长度控制
+                        if len(detail_str) > 200:
+                            detail_str = detail_str[:197] + "..."
+                        msg += f", 详情: {detail_str}"
+                    else:
+                        # 如果没有标准错误字段，截取部分响应体
+                        resp_str = str(response_json)
+                        if len(resp_str) > 100:
+                            resp_str = resp_str[:100] + "..."
+                        msg += f", 响应: {resp_str}"
+                elif response_json:
+                    # 如果响应不是字典（例如列表或纯字符串）
+                    resp_str = str(response_json)
+                    if len(resp_str) > 100:
+                        resp_str = resp_str[:100] + "..."
+                    msg += f", 响应: {resp_str}"
+                
+                error_messages.append(msg)
 
         # 检查响应内容断言列表
         if teststep.assertions:
@@ -635,20 +622,57 @@ class HttpClient:
                     # 将字典转换为 JsonValueAssertionRule 对象
                     assertion = JsonValueAssertionRule(**assertion_dict)
 
-                    jsonpath_expr = parse(assertion.path)
-                    matches = [match.value for match in jsonpath_expr.find(response_json)]
+                    matches = []
+                    path_desc = assertion.path if assertion.path else assertion.source.value
+
+                    if assertion.source == VariableSource.STATUS:
+                        matches = [response.status_code]
+                    elif assertion.source == VariableSource.HEADERS:
+                        if assertion.path:
+                            val = response.headers.get(assertion.path)
+                            if val is not None:
+                                matches = [val]
+                    elif assertion.source == VariableSource.RESPONSE_TIME:
+                        matches = [response.elapsed.total_seconds() * 1000]
+                    else:
+                        # RESPONSE or BODY (for compatibility, treat BODY as RESPONSE if dealing with response content)
+                        # But wait, VariableSource.BODY means Request Body. 
+                        # However, for assertions we usually mean Response Body.
+                        # If user set source=BODY in old logic (AssertionSource.BODY), it meant response body.
+                        # Now VariableSource.RESPONSE is the correct one for response body.
+                        
+                        target_json = response_json
+                        if assertion.source == VariableSource.BODY:
+                            # If it explicitly says BODY (Request Body in VariableSource), do we support asserting on request body?
+                            # Usually we don't. But assuming legacy data might have "BODY" meaning "RESPONSE".
+                            # Let's check if we should migrate data.
+                            # For now, let's assume default is RESPONSE.
+                            pass
+                            
+                        if assertion.path:
+                            # 兼容性处理：如果 path 是 STATUS 且 source 是 RESPONSE/BODY（默认），修正为 STATUS
+                            if assertion.path == "STATUS":
+                                matches = [response.status_code]
+                            else:
+                                try:
+                                    jsonpath_expr = parse(assertion.path)
+                                    matches = [match.value for match in jsonpath_expr.find(target_json)]
+                                except Exception as e:
+                                    logger.warning(f"JSONPath 解析失败: {assertion.path}, error: {e}")
+                        else:
+                            matches = [target_json]
 
                     # 根据操作符进行验证
                     is_passed = False
-                    error_detail = f"路径 '{assertion.path}' 查找失败或无匹配"
+                    error_detail = f"路径 '{path_desc}' 查找失败或无匹配"
 
-                    if assertion.operator in ["equal", "not_equal", "contains", "not_contains", "greater_than", "less_than"]:
+                    if assertion.operator in ["equal", "not_equal", "contains", "not_contains", "greater_than", "less_than", "greater_or_equal", "less_or_equal"]:
                         if not matches:
                             is_passed = False # 无匹配则断言失败
-                            error_detail = f"路径 '{assertion.path}' 未找到匹配项"
+                            error_detail = f"路径 '{path_desc}' 未找到匹配项"
                         else:
                             actual_value = matches[0] # 通常我们只关心第一个匹配项
-                            error_detail = f"路径 '{assertion.path}': 预期值 {assertion.value}, 实际值 {actual_value}"
+                            error_detail = f"路径 '{path_desc}': 预期值 {assertion.value}, 实际值 {actual_value}"
                             
                             if assertion.operator == "equal":
                                 is_passed = str(actual_value) == str(assertion.value)
@@ -658,27 +682,87 @@ class HttpClient:
                                 is_passed = str(assertion.value) in str(actual_value)
                             elif assertion.operator == "not_contains":
                                 is_passed = str(assertion.value) not in str(actual_value)
-                            elif assertion.operator == "greater_than":
+                            elif assertion.operator in ["greater_than", "less_than", "greater_or_equal", "less_or_equal"]:
                                 # 尝试将值转换为数字进行比较
                                 try:
-                                    is_passed = float(actual_value) > float(assertion.value)
-                                except (ValueError, TypeError):
-                                    is_passed = False # 无法转换为数字则断言失败
-                                    error_detail += " (无法进行数值比较)"
-                            elif assertion.operator == "less_than":
-                                # 尝试将值转换为数字进行比较
-                                try:
-                                    is_passed = float(actual_value) < float(assertion.value)
+                                    act_f = float(actual_value)
+                                    exp_f = float(assertion.value)
+                                    if assertion.operator == "greater_than":
+                                        is_passed = act_f > exp_f
+                                    elif assertion.operator == "less_than":
+                                        is_passed = act_f < exp_f
+                                    elif assertion.operator == "greater_or_equal":
+                                        is_passed = act_f >= exp_f
+                                    elif assertion.operator == "less_or_equal":
+                                        is_passed = act_f <= exp_f
                                 except (ValueError, TypeError):
                                     is_passed = False # 无法转换为数字则断言失败
                                     error_detail += " (无法进行数值比较)"
 
+                    elif assertion.operator.startswith("length_"):
+                        if not matches:
+                            is_passed = False
+                            error_detail = f"路径 '{path_desc}' 未找到匹配项，无法计算长度"
+                        else:
+                            actual_value = matches[0]
+                            try:
+                                actual_length = len(actual_value)
+                                expected_length = int(assertion.value)
+                                error_detail = f"路径 '{path_desc}' 长度: 预期 {expected_length}, 实际 {actual_length}"
+                                
+                                if assertion.operator == "length_equal":
+                                    is_passed = actual_length == expected_length
+                                elif assertion.operator == "length_not_equal":
+                                    is_passed = actual_length != expected_length
+                                elif assertion.operator == "length_greater_than":
+                                    is_passed = actual_length > expected_length
+                                elif assertion.operator == "length_less_than":
+                                    is_passed = actual_length < expected_length
+                                elif assertion.operator == "length_greater_or_equal":
+                                    is_passed = actual_length >= expected_length
+                                elif assertion.operator == "length_less_or_equal":
+                                    is_passed = actual_length <= expected_length
+                            except (TypeError, ValueError):
+                                is_passed = False
+                                error_detail = f"路径 '{path_desc}' 的值无法计算长度或预期值不是整数"
+
                     elif assertion.operator == "exists":
                         is_passed = bool(matches)
-                        error_detail = f"路径 '{assertion.path}' {'预期存在但未找到' if not is_passed else '存在'}"
+                        error_detail = f"路径 '{path_desc}' {'预期存在但未找到' if not is_passed else '存在'}"
                     elif assertion.operator == "not_exists":
                         is_passed = not bool(matches)
-                        error_detail = f"路径 '{assertion.path}' {'预期不存在但找到' if not is_passed else '不存在'}"
+                        error_detail = f"路径 '{path_desc}' {'预期不存在但找到' if not is_passed else '不存在'}"
+
+                    elif assertion.operator.startswith("is_") or assertion.operator == "not_null":
+                        if not matches:
+                            is_passed = False
+                            error_detail = f"路径 '{path_desc}' 未找到匹配项，无法进行类型校验"
+                        else:
+                            actual_value = matches[0]
+                            if assertion.operator == "is_array":
+                                is_passed = isinstance(actual_value, list)
+                                type_name = "Array"
+                            elif assertion.operator == "is_dict":
+                                is_passed = isinstance(actual_value, dict)
+                                type_name = "Object/Dict"
+                            elif assertion.operator == "is_string":
+                                is_passed = isinstance(actual_value, str)
+                                type_name = "String"
+                            elif assertion.operator == "is_number":
+                                is_passed = isinstance(actual_value, (int, float)) and not isinstance(actual_value, bool)
+                                type_name = "Number"
+                            elif assertion.operator == "is_boolean":
+                                is_passed = isinstance(actual_value, bool)
+                                type_name = "Boolean"
+                            elif assertion.operator == "is_null":
+                                is_passed = actual_value is None
+                                type_name = "Null"
+                            elif assertion.operator == "not_null":
+                                is_passed = actual_value is not None
+                                type_name = "Not Null"
+                            
+                            actual_type = type(actual_value).__name__
+                            error_detail = f"路径 '{assertion.path}': 预期类型 {type_name}, 实际类型 {actual_type}"
 
                     # 如果断言失败，更新总体状态和错误信息
                     if not is_passed:
@@ -690,6 +774,10 @@ class HttpClient:
 
         # 合并所有错误信息
         error_message = "; ".join(error_messages) if error_messages else None
+        
+        # 确保错误信息不超过数据库字段限制 (255字符)
+        if error_message and len(error_message) > 255:
+            error_message = error_message[:252] + "..."
 
         duration = time.time() - start_time
         return {
@@ -706,15 +794,19 @@ class HttpClient:
 
     @staticmethod
     async def _handle_login_request(client, url, body, headers):
-        print("检测到登录请求，使用Session模式处理")
+        logger.info("开始登录")
+        
+        # 0. 清除现有 Cookies，模拟一个新的 Session
+        client.cookies.clear()
+
         # 1. 发送GET请求获取登录页面和CSRF token
-        print(f"Step 1: 获取登录页面 {url}")
+        logger.debug(f"获取登录页面: {url}")
         await client.get(url)
         
         # 2. 从cookie中提取CSRF token
         if '__Host_csrftoken' in client.cookies:
             csrftoken = client.cookies['__Host_csrftoken']
-            print(f"Step 2: 获取到CSRF token: {csrftoken}")
+            logger.info(f"获取到CSRF token")
             
             # 3. 设置token到payload和headers
             body['csrfmiddlewaretoken'] = csrftoken
@@ -723,21 +815,34 @@ class HttpClient:
             headers['Referer'] = url
             # 不需要设置 X-CSRFToken，因为表单提交只需要 csrfmiddlewaretoken
             
-            print(f"Step 3: 准备发送登录请求")
-            print(f"- URL: {url}")
-            print(f"- Headers: {headers}")
-            print(f"- Payload: {body}")
-            print(f"- Cookies: {dict(client.cookies)}")
+            logger.debug(f"准备发送登录请求: {headers}")
         else:
-            print("警告: 未获取到CSRF token，登录可能会失败")
+            logger.warning("未获取到CSRF token，登录可能会失败")
 
         # 4. 发送登录请求
+        # 显式启用重定向跟踪，确保获取到最终页面的 Cookies
         response = await client.request(
             method='POST',
             url=url,
             data=body,
-            headers=headers
+            headers=headers,
+            follow_redirects=True
         )
+
+        logger.info(f"登录请求完成，状态码: {response.status_code}")
+        logger.debug(f"登录响应 URL: {response.url}")
+        
+        # 详细打印 Cookie 信息用于调试
+        logger.info(f"登录后 Client Cookie Jar: {dict(client.cookies)}")
+        for cookie in client.cookies.jar:
+            logger.info(f"Cookie详情: name={cookie.name}, value={cookie.value}, domain={cookie.domain}, path={cookie.path}")
+            
+        if 'gin2_token' not in client.cookies:
+            logger.error("严重错误: 登录后未在 Cookie Jar 中找到 gin2_token！")
+            logger.error(f"响应头 Set-Cookie: {response.headers.get_list('set-cookie')}")
+            logger.error(f"响应体预览: {response.text}")
+        else:
+            logger.info("成功获取到 gin2_token")
 
         return response
 
@@ -751,15 +856,21 @@ class HttpClient:
             try:
                 response_data = response.json()
             except ValueError:
-                print(f"警告: _update_context 中尝试解析JSON失败，响应内容为: {response.text[:200]}...")
+                logger.warning(f"_update_context 中尝试解析JSON失败，响应内容为: {response.text[:200]}...")
                 response_data = {"_parse_error": "Invalid JSON response", "text_content": response.text}
         else:
             response_data = {"text_content": response.text}
 
+        # 使用 client.cookies 获取完整的 cookie jar (包含重定向过程中的 cookies)
+        # 如果仅使用 response.cookies，可能会丢失重定向过程中设置的 cookies
+        cookies = dict(response.cookies)
+        if HttpClient._client:
+            cookies = dict(HttpClient._client.cookies)
+
         await HttpClient._context.update_context(
             response_data,
             dict(response.headers),
-            dict(response.cookies)
+            cookies
         )
 
     @staticmethod

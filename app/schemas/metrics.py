@@ -6,6 +6,7 @@ class JiraFixVersion(BaseModel):
     id: Optional[str] = None
     released: Optional[bool] = None
     archived: Optional[bool] = None
+    release_date: Optional[str] = None
 
 class JiraBugItem(BaseModel):
     key: str
@@ -13,6 +14,7 @@ class JiraBugItem(BaseModel):
     created: Optional[str] = None
     severity: Optional[str] = None
     resolved: Optional[str] = None
+    assignee: Optional[str] = None
 
 class JiraBugDistributionItem(BaseModel):
     module: str
@@ -39,6 +41,7 @@ class JiraVersionTrendItem(BaseModel):
     version: str
     bug_count: int
     demand_count: int
+    release_date: Optional[str] = None
 
 class JiraVersionTrendData(BaseModel):
     project_key: str

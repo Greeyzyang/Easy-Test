@@ -6,12 +6,17 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 import os
 from app.database import get_db
-from app.models import Testsuite, Testcase, TestStep, Interface
+from app.models import Testsuite, Testcase, TestStep, Interface, TestSuiteTestCase
 from app.schemas.testsuite import TestsuiteCreate, TestsuiteRead, TestsuiteUpdate, ScheduleTestSuiteRequest
+from app.schemas.base_schemas import PaginationParams
 from app.utils.response import create_response, ResponseModel
 from app.services.testreport_service import TestreportService
 from app.celery_app import celery_app
 from celery.schedules import crontab
+
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(
     prefix="/rest/v1/testsuites",
@@ -23,39 +28,55 @@ active_connections = {}
 
 @router.post("/", response_model=ResponseModel)
 async def create_testsuite(testsuite: TestsuiteCreate, db: AsyncSession = Depends(get_db)):
+    logger.info(f"Creating testsuite: {testsuite.name}")
+    
+    testcases = []
     # 如果有测试用例，先验证它们是否存在
     if testsuite.testcases:
+        logger.info(f"Validating {len(testsuite.testcases)} testcases for testsuite")
         result = await db.execute(
             select(Testcase)
             .where(Testcase.id.in_(testsuite.testcases))
         )
-        testcases = result.scalars().all()
+        found_testcases = result.scalars().all()
         
         # 验证所有测试用例是否存在
-        if len(testcases) != len(testsuite.testcases):
-            found_ids = {tc.id for tc in testcases}
+        if len(found_testcases) != len(testsuite.testcases):
+            found_ids = {tc.id for tc in found_testcases}
             missing_ids = set(testsuite.testcases) - found_ids
+            logger.warning(f"Testcases not found: {missing_ids}")
             raise HTTPException(
                 status_code=404,
                 detail=f"Testcases not found: {', '.join(missing_ids)}"
             )
-    else:
-        testcases = []
+        testcases = found_testcases
 
-    # 创建测试套件并直接添加测试用例
+    # 按照请求中的顺序创建关联对象
+    testcase_associations = []
+    if testsuite.testcases:
+        testcase_map = {tc.id: tc for tc in testcases}
+        for index, tc_id in enumerate(testsuite.testcases):
+            if tc_id in testcase_map:
+                testcase_associations.append(
+                    TestSuiteTestCase(testcase=testcase_map[tc_id], sort_order=index)
+                )
+
+    # 创建测试套件并直接添加测试用例关联
     db_testsuite = Testsuite(
         **testsuite.dict(exclude={"testcases"}),
-        testcases=testcases
+        testcase_associations=testcase_associations
     )
     db.add(db_testsuite)
     await db.commit()
     await db.refresh(db_testsuite)
+    logger.info(f"Testsuite created: {db_testsuite.id}")
 
     # 查询完整数据，包括测试用例基本信息和步骤数量
     result = await db.execute(
         select(Testsuite)
         .options(
-            selectinload(Testsuite.testcases)
+            selectinload(Testsuite.testcase_associations)
+            .selectinload(TestSuiteTestCase.testcase)
             .selectinload(Testcase.steps)
         )
         .where(Testsuite.id == db_testsuite.id)
@@ -65,28 +86,41 @@ async def create_testsuite(testsuite: TestsuiteCreate, db: AsyncSession = Depend
 
 @router.get("/", response_model=ResponseModel)
 async def read_testsuites(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(10, gt=0),
+    params: PaginationParams = Depends(),
     name: str | None = Query(None, description="Filter by testsuite name"),
     db: AsyncSession = Depends(get_db)
 ):
-    # 列表接口只需要加载测试用例的基本信息和步骤数量
+    # 基础查询
     query = select(Testsuite).options(
-        selectinload(Testsuite.testcases)
+        selectinload(Testsuite.testcase_associations)
+        .selectinload(TestSuiteTestCase.testcase)
         .selectinload(Testcase.steps)
     )
+    
+    # 计数查询
+    count_query = select(func.count()).select_from(Testsuite)
 
     # 如果提供了 name 参数，添加过滤条件
     if name:
-        # 使用 SQLAlchemy 的 like 进行模糊匹配
-        query = query.where(Testsuite.name.like(f"%{name}%"))
+        filter_stmt = Testsuite.name.like(f"%{name}%")
+        query = query.where(filter_stmt)
+        count_query = count_query.where(filter_stmt)
+
+    # 执行计数查询
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
+
+    # 添加排序
+    query = query.order_by(Testsuite.id.desc())
 
     # 添加分页
-    query = query.offset(skip).limit(limit)
+    query = query.offset(params.skip).limit(params.limit)
 
     result = await db.execute(query)
     testsuites = result.scalars().all()
-    return await create_response(data=[TestsuiteRead.from_orm(ts) for ts in testsuites])
+    
+    testsuites_data = [TestsuiteRead.from_orm(ts) for ts in testsuites]
+    return await create_response(data={"items": testsuites_data, "total": total})
 
 @router.get("/{testsuite_id}/", response_model=ResponseModel)
 async def read_testsuite(testsuite_id: str, db: AsyncSession = Depends(get_db)):
@@ -94,7 +128,8 @@ async def read_testsuite(testsuite_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Testsuite)
         .options(
-            selectinload(Testsuite.testcases)
+            selectinload(Testsuite.testcase_associations)
+            .selectinload(TestSuiteTestCase.testcase)
             .selectinload(Testcase.steps)
             .selectinload(TestStep.interface)
         )
@@ -107,14 +142,16 @@ async def read_testsuite(testsuite_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.put("/{testsuite_id}/", response_model=ResponseModel)
 async def update_testsuite(testsuite_id: str, testsuite: TestsuiteUpdate, db: AsyncSession = Depends(get_db)):
+    logger.info(f"Updating testsuite: {testsuite_id}")
     # 先加载测试套件及其测试用例，使用 selectinload 确保在异步环境中预加载关系
     result = await db.execute(
         select(Testsuite)
-        .options(selectinload(Testsuite.testcases))
+        .options(selectinload(Testsuite.testcase_associations))
         .where(Testsuite.id == testsuite_id)
     )
     db_testsuite = result.scalar_one_or_none()
     if not db_testsuite:
+        logger.warning(f"Testsuite not found for update: {testsuite_id}")
         raise HTTPException(status_code=404, detail="Testsuite not found")
     
     # 更新基本字段
@@ -124,6 +161,7 @@ async def update_testsuite(testsuite_id: str, testsuite: TestsuiteUpdate, db: As
     
     # 处理测试用例关系更新
     if testsuite.testcases is not None:
+        logger.info(f"Updating {len(testsuite.testcases)} testcases for testsuite: {testsuite_id}")
         # 一次性查询所有新的测试用例
         result = await db.execute(
             select(Testcase)
@@ -135,24 +173,36 @@ async def update_testsuite(testsuite_id: str, testsuite: TestsuiteUpdate, db: As
         if len(new_testcases) != len(testsuite.testcases):
             found_ids = {tc.id for tc in new_testcases}
             missing_ids = set(testsuite.testcases) - found_ids
+            logger.warning(f"Testcases not found for testsuite update: {missing_ids}")
             raise HTTPException(
                 status_code=404,
                 detail=f"Testcases not found: {', '.join(missing_ids)}"
             )
         
-        # 清空现有的测试用例并添加新的
-        db_testsuite.testcases.clear()
-        for tc in new_testcases:
-            db_testsuite.testcases.append(tc)
+        # 清空现有的测试用例关联
+        db_testsuite.testcase_associations.clear()
+        
+        # 重建关联并保持顺序
+        testcase_map = {tc.id: tc for tc in new_testcases}
+        new_associations = []
+        for index, tc_id in enumerate(testsuite.testcases):
+            if tc_id in testcase_map:
+                new_associations.append(
+                    TestSuiteTestCase(testcase=testcase_map[tc_id], sort_order=index)
+                )
+        
+        db_testsuite.testcase_associations = new_associations
     
     # 提交更改
     await db.commit()
+    logger.info(f"Testsuite {testsuite_id} updated successfully")
     
     # 重新查询更新后的数据，确保所有关系正确加载
     result = await db.execute(
         select(Testsuite)
         .options(
-            selectinload(Testsuite.testcases)
+            selectinload(Testsuite.testcase_associations)
+            .selectinload(TestSuiteTestCase.testcase)
             .selectinload(Testcase.steps)
         )
         .where(Testsuite.id == testsuite_id)
@@ -184,7 +234,7 @@ async def delete_testsuite(testsuite_id: str, db: AsyncSession = Depends(get_db)
     if task_name in celery_app.conf.beat_schedule:
         del celery_app.conf.beat_schedule[task_name]
         # 可以在此处添加日志或通知，表示任务已移除
-        print(f"Scheduled task {task_name} removed from Celery Beat.")
+        logger.info(f"Scheduled task {task_name} removed from Celery Beat.")
 
     return await create_response(data=None, msg=f"Testsuite {testsuite_id} and its scheduled task deleted successfully")
 
@@ -193,13 +243,13 @@ async def websocket_progress(websocket: WebSocket, testsuite_id: str):
     """
     WebSocket 路由：允许任意 Origin 连接（不做校验）
     """
-    print(f"Received WebSocket connection request for testsuite: {testsuite_id}")
-    print(f"Headers: {websocket.headers}")
+    logger.info(f"Received WebSocket connection request for testsuite: {testsuite_id}")
+    logger.debug(f"Headers: {websocket.headers}")
     try:
         await websocket.accept()
-        print("WebSocket connection accepted")
+        logger.info("WebSocket connection accepted")
     except Exception as e:
-        print(f"Error in WebSocket connection: {str(e)}")
+        logger.error(f"Error in WebSocket connection: {str(e)}")
     if testsuite_id not in active_connections:
         active_connections[testsuite_id] = []
     active_connections[testsuite_id].append(websocket)
@@ -275,7 +325,7 @@ async def schedule_testsuite(
     }
     celery_app.conf.timezone = 'Asia/Shanghai' # 确保 Celery Beat 使用正确的时区
 
-    print(f"Scheduled task '{task_name}' for testsuite {testsuite_id} with cron: {cron_expression}")
+    logger.info(f"Scheduled task '{task_name}' for testsuite {testsuite_id} with cron: {cron_expression}")
     # 可以在这里保存调度信息到数据库，以便持久化和管理
 
     return await create_response(data={"task_name": task_name, "message": "测试套件已成功调度"})

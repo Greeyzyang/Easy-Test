@@ -27,10 +27,10 @@ def update_enum_values():
         )
         
         session.commit()
-        print("Successfully updated enum values to uppercase")
+        logger.info("Successfully updated enum values to uppercase")
     except Exception as e:
         session.rollback()
-        print(f"Error updating enum values: {e}")
+        logger.error(f"Error updating enum values: {e}")
     finally:
         session.close()
 

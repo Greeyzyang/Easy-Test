@@ -54,6 +54,11 @@ export const constantRoutes = [
     component: () => import('@/views/login/reset-password'),
     hidden: true
   },
+  {
+    path: '/verify-email',
+    component: () => import('@/views/login/verify-email'),
+    hidden: true
+  },
 
   {
     path: '/404',
@@ -80,60 +85,60 @@ export const constantRoutes = [
     meta: { title: '测试设计', icon: 'el-icon-s-management' },
     children: [
       {
-        path: 'projects',
+        path: '/design/projects',
         name: 'DesignProjects',
         component: () => import('@/views/projects/index'),
         meta: { title: '项目管理' }
       },
       {
-        path: 'projects/create',
+        path: '/design/projects/create',
         name: 'DesignProjectCreate',
         component: () => import('@/views/projects/create'),
         meta: { title: '创建项目', activeMenu: '/design/projects' },
         hidden: true
       },
       {
-        path: 'projects/edit/:id',
+        path: '/design/projects/edit/:id',
         name: 'DesignProjectEdit',
         component: () => import('@/views/projects/edit'),
         meta: { title: '编辑项目', activeMenu: '/design/projects' },
         hidden: true
       },
       {
-        path: 'modules',
+        path: '/design/modules',
         name: 'DesignModules',
         component: () => import('@/views/modules/index'),
         meta: { title: '模块管理' }
       },
       {
-        path: 'modules/create',
+        path: '/design/modules/create',
         name: 'DesignModuleCreate',
         component: () => import('@/views/modules/create'),
         meta: { title: '创建模块', activeMenu: '/design/modules' },
         hidden: true
       },
       {
-        path: 'modules/edit/:id',
+        path: '/design/modules/edit/:id',
         name: 'DesignModuleEdit',
         component: () => import('@/views/modules/edit'),
         meta: { title: '编辑模块', activeMenu: '/design/modules' },
         hidden: true
       },
       {
-        path: 'interfaces',
+        path: '/design/interfaces',
         name: 'DesignInterfaces',
         component: () => import('@/views/interfaces/index'),
         meta: { title: '接口管理' }
       },
       {
-        path: 'interfaces/create',
+        path: '/design/interfaces/create',
         name: 'DesignInterfaceCreate',
         component: () => import('@/views/interfaces/create'),
         meta: { title: '创建接口', activeMenu: '/design/interfaces' },
         hidden: true
       },
       {
-        path: 'interfaces/edit/:id',
+        path: '/design/interfaces/edit/:id',
         name: 'DesignInterfaceEdit',
         component: () => import('@/views/interfaces/edit'),
         meta: { title: '编辑接口', activeMenu: '/design/interfaces' },
@@ -244,6 +249,42 @@ export const constantRoutes = [
     ]
   },
   {
+    path: '/performance',
+    component: Layout,
+    alwaysShow: true,
+    name: 'Performance',
+    meta: { title: '性能压测', icon: 'el-icon-data-analysis' },
+    children: [
+      {
+        path: 'index',
+        name: 'PerformanceTests',
+        component: () => import('@/views/performance-tests/index'),
+        meta: { title: '压测管理' }
+      },
+      {
+        path: 'create',
+        name: 'PerformanceTestCreate',
+        component: () => import('@/views/performance-tests/create'),
+        meta: { title: '创建压测', activeMenu: '/performance/index' },
+        hidden: true
+      },
+      {
+        path: 'edit/:id',
+        name: 'PerformanceTestEdit',
+        component: () => import('@/views/performance-tests/create'),
+        meta: { title: '编辑压测', activeMenu: '/performance/index' },
+        hidden: true
+      },
+      {
+        path: 'report/:id',
+        name: 'PerformanceTestReport',
+        component: () => import('@/views/performance-tests/report'),
+        meta: { title: '压测报告', activeMenu: '/performance/index' },
+        hidden: true
+      }
+    ]
+  },
+  {
     path: '/assistant',
     component: Layout,
     alwaysShow: true,
@@ -262,6 +303,42 @@ export const constantRoutes = [
         name: 'AIKnowledgeBase',
         component: () => import('@/views/assistant/kb'),
         meta: { title: '知识库', icon: 'el-icon-document' }
+      }
+    ]
+  },
+
+  {
+    path: '/system',
+    component: Layout,
+    alwaysShow: true,
+    name: 'System',
+    meta: { title: '系统设置', icon: 'el-icon-setting' },
+    children: [
+      {
+        path: 'ai-models',
+        name: 'AIModels',
+        component: () => import('@/views/ai-models/index'),
+        meta: { title: '模型广场' }
+      },
+      {
+        path: 'mcp-servers',
+        name: 'MCPServers',
+        component: () => import('@/views/mcp-servers/index'),
+        meta: { title: 'MCP Server' }
+      },
+      {
+        path: 'mcp-servers/create',
+        name: 'MCPServerCreate',
+        component: () => import('@/views/mcp-servers/create'),
+        meta: { title: '创建 MCP Server', activeMenu: '/system/mcp-servers' },
+        hidden: true
+      },
+      {
+        path: 'mcp-servers/edit/:id',
+        name: 'MCPServerEdit',
+        component: () => import('@/views/mcp-servers/edit'),
+        meta: { title: '编辑 MCP Server', activeMenu: '/system/mcp-servers' },
+        hidden: true
       }
     ]
   },

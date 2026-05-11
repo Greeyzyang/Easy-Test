@@ -1,5 +1,8 @@
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # MySQL connection URL
 SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:root@localhost/test_platform"
@@ -29,10 +32,10 @@ def update_status_case():
         )
         
         session.commit()
-        print("Successfully updated status values to uppercase")
+        logger.info("Successfully updated status values to uppercase")
     except Exception as e:
         session.rollback()
-        print(f"Error updating status: {e}")
+        logger.error(f"Error updating status: {e}")
     finally:
         session.close()
 

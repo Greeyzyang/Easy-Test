@@ -1,12 +1,14 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
+from sqlalchemy import func
 from app.models import (
     Testreport, 
     Testsuite, 
     Testcase,
     ExecutionDetail, 
-    TestStep, Variable
+    TestStep, Variable,
+    TestSuiteTestCase
 )
 from app.schemas.base_schemas import TestStatus
 from datetime import datetime
@@ -23,49 +25,50 @@ from app.schemas.testreport import (
     TestreportListRead
 )
 
+from app.utils.logger import get_logger
+from app.utils.task_utils import publish_task_progress
+
+logger = get_logger(__name__)
+
 class TestreportService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.http_client = HttpClient()
 
-    async def generate_report(self, testsuite_id: str, env_name: str, websocket_list: List = None) -> Testreport:
+    async def generate_report(self, testsuite_id: str, env_name: str, websocket_list: List = None, task_id: str = None) -> Testreport:
         """
         生成测试报告的核心方法
         
-        执行流程：
-        1. 环境准备：解析环境变量模板，获取最终的 base_url，并初始化测试上下文
-        2. 测试执行：获取测试套件，执行所有测试用例
-        3. 报告生成：创建测试报告和执行详情
-        4. 清理资源：关闭客户端连接，清理上下文
-        
         Args:
             testsuite_id: 测试套件ID
-            env_name: 环境变量模板，支持 ${...} 语法，如 "${protocol}://${host}:${port}"
-            websocket_list: WebSocket连接列表，用于实时推送执行进度
-            
-        Returns:
-            Testreport: 生成的测试报告对象
+            env_name: 环境变量模板
+            websocket_list: WebSocket连接列表
+            task_id: Celery 任务 ID，用于进度推送
         """
         try:
             # ==================== 第一阶段：环境准备和上下文初始化 ====================
-            print(f"开始执行测试套件 {testsuite_id}，环境模板: {env_name}")
+            logger.info(f"开始执行测试套件 {testsuite_id}，环境模板: {env_name}")
+            if task_id:
+                await publish_task_progress(task_id, "PROGRESS", 5, "正在初始化测试环境...")
             
-            # 1. 解析环境变量模板，获取最终的 base_url，并初始化测试上下文
-            # 这一步会：
-            # - 从数据库获取所有全局变量
-            # - 解析 env_name 模板得到 base_url
-            # - 初始化 HttpClient 的上下文
+            # 1. 解析环境变量模板
             final_base_url = await self._resolve_base_url_and_init_context(env_name)
-            print(f"解析后的 base_url: {final_base_url}")
-
+            
             # ==================== 第二阶段：测试执行 ====================
-            # 2. 从数据库获取测试套件及其关联的测试用例和测试步骤
+            # 2. 从数据库获取测试套件
             testsuite = await self._get_testsuite(testsuite_id)
+            if task_id:
+                await publish_task_progress(task_id, "PROGRESS", 10, f"已获取测试套件: {testsuite.name}")
+            
             suite_start_time = time.time()
             
-            # 3. 执行所有测试用例，支持实时进度推送
-            # 这一步会遍历所有测试用例，执行每个测试步骤，并收集执行结果
-            report_details = await self._execute_test_cases(testsuite.testcases, websocket_list)
+            # 3. 执行所有测试用例
+            report_details = await self._execute_test_cases(
+                testcases=testsuite.testcases, 
+                websocket_list=websocket_list, 
+                task_id=task_id,
+                suite_headers=testsuite.headers
+            )
             
             # ==================== 第三阶段：报告生成 ====================
             # 4. 创建测试报告记录
@@ -78,11 +81,11 @@ class TestreportService:
             # 5. 创建详细的执行记录
             await self._create_execution_details(db_testreport.id, report_details)
             
-            print(f"测试套件 {testsuite_id} 执行完成，生成报告: {db_testreport.id}")
+            logger.info(f"测试套件 {testsuite_id} 执行完成，生成报告: {db_testreport.id}")
             return db_testreport
             
         except Exception as e:
-            print(f"测试执行过程中发生错误: {str(e)}")
+            logger.error(f"测试执行过程中发生错误: {str(e)}")
             raise
         finally:
             # ==================== 第四阶段：资源清理 ====================
@@ -90,7 +93,7 @@ class TestreportService:
             await self.http_client.close_client()
             # 7. 清理测试上下文，避免影响后续测试
             await self._cleanup_test_context()
-            print("测试资源清理完成")
+            logger.info("测试资源清理完成")
 
     async def _resolve_base_url_and_init_context(self, env_name_template: str) -> str:
         """
@@ -119,8 +122,20 @@ class TestreportService:
         """
         # 1. 从数据库获取所有全局变量（只查询一次）
         all_variables = await self._get_all_variables()
-        print(f"从数据库获取到 {len(all_variables)} 个全局变量")
-        print(f"准备解析模板 '{env_name_template}'，可用变量: {list(all_variables.keys())}")
+        logger.info(f"从数据库获取到 {len(all_variables)} 个全局变量")
+        
+        # 补充：尝试从系统环境变量获取缺失的变量
+        import os
+        import re
+        env_vars = re.findall(r'\${(.*?)}', env_name_template)
+        for var in env_vars:
+            if var not in all_variables:
+                sys_val = os.getenv(var)
+                if sys_val:
+                    all_variables[var] = sys_val
+                    logger.info(f"从系统环境变量获取: {var}={sys_val}")
+
+        logger.debug(f"准备解析模板 '{env_name_template}'，可用变量: {list(all_variables.keys())}")
         
         # 2. 获取 HttpClient 的共享上下文实例
         context = HttpClient._context
@@ -148,9 +163,9 @@ class TestreportService:
         # 8. 设置数据库会话，供后续函数调用使用
         context.set_db(self.db)
         
-        print(f"模板解析成功: '{env_name_template}' -> '{final_base_url}'")
-        print(f"测试上下文初始化完成，base_url: {final_base_url}")
-        print(f"可用变量: {list(context.variables.keys())}")
+        logger.info(f"模板解析成功: '{env_name_template}' -> '{final_base_url}'")
+        logger.debug(f"测试上下文初始化完成，base_url: {final_base_url}")
+        logger.debug(f"可用变量: {list(context.variables.keys())}")
         
         return final_base_url
 
@@ -165,14 +180,17 @@ class TestreportService:
         """
         from app.utils.http_client import HttpClient
         await HttpClient._context.clear()
-        print("测试上下文已清理")
+        logger.info("测试上下文已清理")
 
     async def _get_testsuite(self, testsuite_id: str) -> Testsuite:
         result = await self.db.execute(
             select(Testsuite)
-            .options(selectinload(Testsuite.testcases)
-            .selectinload(Testcase.steps)
-            .selectinload(TestStep.interface))
+            .options(
+                selectinload(Testsuite.testcase_associations)
+                .selectinload(TestSuiteTestCase.testcase)
+                .selectinload(Testcase.steps)
+                .selectinload(TestStep.interface)
+            )
             .where(Testsuite.id == testsuite_id)
         )
         testsuite = result.scalar_one_or_none()
@@ -180,25 +198,27 @@ class TestreportService:
             raise HTTPException(status_code=404, detail="测试套件未找到")
         return testsuite
 
-    async def _execute_test_cases(self, testcases: List[Testcase], websocket_list: List = None):
+    async def _execute_test_cases(self, testcases: List[Testcase], websocket_list: List = None, task_id: str = None, suite_headers: Dict = None):
         """
-        执行所有测试用例，返回测试结果列表
+        执行所有测试用例，返回测试结果列表（支持并行执行）
         
         执行流程：
         1. 预处理：统计所有测试步骤，建立测试用例映射
-        2. 遍历执行：逐个执行测试用例中的每个测试步骤
-        3. 模板处理：使用上下文处理请求参数中的变量替换
-        4. HTTP请求：调用 HttpClient 执行实际的 HTTP 请求
-        5. 结果收集：收集每个步骤的执行结果
-        6. 进度推送：通过 WebSocket 实时推送执行进度
+        2. 并行控制：使用 Semaphore 限制最大并发数为 5，防止压垮服务器
+        3. 并发执行：使用 asyncio.gather 并发执行所有测试用例
+        4. 进度推送：通过回调函数实时推送执行进度
         
         Args:
             testcases: 测试用例列表
             websocket_list: WebSocket连接列表，用于实时推送进度
+            task_id: Celery 任务 ID，用于进度推送
+            suite_headers: 测试套件公共请求头
             
         Returns:
             List[TestcaseResult]: 测试用例执行结果列表
         """
+        import asyncio
+
         # ==================== 预处理阶段 ====================
         testcase_results = []
         all_steps = []
@@ -213,13 +233,14 @@ class TestreportService:
             all_steps.extend(list(tc.steps))
         
         total_steps = len(all_steps)
-        current = 0
+        # 使用 shared_state 字典在闭包中共享状态，因为 int 是不可变的
+        shared_state = {"current_progress": 0}
         
-        print(f"开始执行 {len(testcases)} 个测试用例，共 {total_steps} 个测试步骤")
+        logger.info(f"开始执行 {len(testcases)} 个测试用例，共 {total_steps} 个测试步骤")
 
         # 2. 检查是否有可执行的测试步骤
         if total_steps == 0:
-            print("没有找到可执行的测试步骤")
+            logger.warning("没有找到可执行的测试步骤")
             if websocket_list:
                 # 推送开始和完成消息
                 msg0 = {"progress": 0, "text": "无可执行步骤", "status": TestStatus.SKIPPED}
@@ -236,128 +257,165 @@ class TestreportService:
         # 这个上下文包含了所有环境变量，用于模板处理
         from app.utils.http_client import HttpClient
         context = HttpClient._context
-        print(f"使用已初始化的测试上下文，可用变量: {list(context.variables.keys())}")
+        logger.debug(f"使用已初始化的测试上下文，可用变量: {list(context.variables.keys())}")
 
-        # ==================== 测试执行阶段 ====================
-        for testcase in testcases:
-            tc = testcase_map[testcase.id]
-            step_results = []
-            
-            print(f"开始执行测试用例: {tc.name}")
-            
-            # 4. 遍历测试用例中的每个测试步骤
-            for step in list(tc.steps):
-                if not step.interface:
-                    print(f"跳过步骤 {step.name}：未关联接口")
-                    continue
+        # ==================== 并行执行配置 ====================
+        # 设置最大并发数为 5，避免过多并发导致资源耗尽或触发限流
+        concurrency_limit = 5
+        semaphore = asyncio.Semaphore(concurrency_limit)
+
+        async def execute_single_testcase(testcase_id):
+            async with semaphore:
+                tc = testcase_map[testcase_id]
+                step_results = []
+                
+                logger.info(f"开始执行测试用例: {tc.name}")
+                
+                # 4. 遍历测试用例中的每个测试步骤
+                for step in list(tc.steps):
+                    if not step.interface:
+                        logger.warning(f"跳过步骤 {step.name}：未关联接口")
+                        continue
+                        
+                    logger.info(f"执行测试步骤: {step.name}")
                     
-                print(f"执行测试步骤: {step.name}")
+                    # ==================== 模板处理阶段 ====================
+                    # 5. 使用已初始化的上下文处理请求参数中的模板字符串
+                    # 这一步会将 ${...} 占位符替换为实际的变量值
+                    
+                    # 处理请求头中的变量
+                    # 5.1 处理公共请求头
+                    processed_suite_headers = await context.process_template_dict(suite_headers) if suite_headers else {}
+                    
+                    # 5.2 处理步骤请求头
+                    processed_step_headers = await context.process_template_dict(step.headers) if step.headers else {}
+                    
+                    # 5.3 合并请求头（公共请求头 < 步骤请求头）
+                    processed_headers = processed_suite_headers.copy()
+                    processed_headers.update(processed_step_headers)
+                    
+                    # 处理查询参数中的变量
+                    processed_params = await context.process_template_dict(step.params) if step.params else {}
+                    
+                    # 处理请求体中的变量
+                    processed_body = await context.process_template_dict(step.body) if step.body else {}
+                    
+                    # 处理文件配置中的变量
+                    processed_file_config = await context.process_template_dict(step.file_config) if step.file_config else {}
+                    
+                    logger.debug(f"模板处理完成 - Headers: {len(processed_headers)}, Params: {len(processed_params)}, Body: {len(processed_body)}")
+                    
+                    # ==================== 请求执行阶段 ====================
+                    # 6. 创建处理后的步骤副本，避免修改原始数据
+                    processed_step = copy.deepcopy(step)
+                    processed_step.headers = processed_headers
+                    processed_step.params = processed_params
+                    processed_step.body = processed_body
+                    processed_step.file_config = processed_file_config
+                    
+                    # 7. 调用 HttpClient 执行实际的 HTTP 请求
+                    # 这一步会：
+                    # - 构建完整的请求 URL（base_url + 接口路径）
+                    # - 发送 HTTP 请求
+                    # - 处理响应和断言
+                    # - 提取变量（如果有配置）
+                    result = await self.http_client.execute(processed_step, self.db)
+                    
+                    # 8. 解析执行状态
+                    status = TestStatus(result["status"].upper())
+                    
+                    # ==================== 结果收集阶段 ====================
+                    # 9. 创建步骤执行结果
+                    response_data = result["response"]
+                    if not isinstance(response_data, dict):
+                        response_data = {"text": response_data}
+                    step_result = StepResult(
+                        id=step.id,
+                        step_id=step.id,
+                        step_name=step.name,
+                        status=status,
+                        start_time=datetime.utcnow(),
+                        end_time=datetime.utcnow(),
+                        duration=result["duration"],
+                        request_data={
+                            "headers": processed_headers,
+                            "params": processed_params,
+                            "body": processed_body,
+                            "request_type": step.request_type.value if hasattr(step.request_type, 'value') else str(step.request_type),
+                            "file_config": processed_file_config
+                        },
+                        response_data=response_data,
+                        error_message=result["error_message"]
+                    )
+                    step_results.append(step_result)
+                    
+                    # 10. 更新进度计数器 (线程安全操作)
+                    shared_state["current_progress"] += 1
+                    current = shared_state["current_progress"]
+                    
+                    # ==================== 进度推送阶段 ====================
+                    # 11. 通过 WebSocket 实时推送执行进度
+                    progress = int(current / total_steps * 100) if total_steps > 0 else 100
+                    progress_text = f"正在执行: {tc.name} - {step.name}"
+                    
+                    if websocket_list:
+                        msg = {
+                            "progress": progress, 
+                            "text": progress_text, 
+                            "status": status
+                        }
+                        for ws in websocket_list:
+                            try:
+                                await ws.send_json(msg)
+                            except:
+                                pass
+                    
+                    if task_id:
+                        await publish_task_progress(
+                            task_id=task_id,
+                            status="PROGRESS",
+                            progress=progress,
+                            text=progress_text,
+                            step_status=status
+                        )
+                    
+                    logger.info(f"步骤 {step.name} 执行完成，状态: {status}")
                 
-                # ==================== 模板处理阶段 ====================
-                # 5. 使用已初始化的上下文处理请求参数中的模板字符串
-                # 这一步会将 ${...} 占位符替换为实际的变量值
-                
-                # 处理请求头中的变量
-                processed_headers = await context.process_template_dict(step.headers) if step.headers else {}
-                
-                # 处理查询参数中的变量
-                processed_params = await context.process_template_dict(step.params) if step.params else {}
-                
-                # 处理请求体中的变量
-                processed_body = await context.process_template_dict(step.body) if step.body else {}
-                
-                # 处理文件配置中的变量
-                processed_file_config = await context.process_template_dict(step.file_config) if step.file_config else {}
-                
-                print(f"模板处理完成 - Headers: {len(processed_headers)}, Params: {len(processed_params)}, Body: {len(processed_body)}")
-                
-                # ==================== 请求执行阶段 ====================
-                # 6. 创建处理后的步骤副本，避免修改原始数据
-                processed_step = copy.deepcopy(step)
-                processed_step.headers = processed_headers
-                processed_step.params = processed_params
-                processed_step.body = processed_body
-                processed_step.file_config = processed_file_config
-                
-                # 7. 调用 HttpClient 执行实际的 HTTP 请求
-                # 这一步会：
-                # - 构建完整的请求 URL（base_url + 接口路径）
-                # - 发送 HTTP 请求
-                # - 处理响应和断言
-                # - 提取变量（如果有配置）
-                result = await self.http_client.execute(processed_step, self.db)
-                
-                # 8. 解析执行状态
-                status = TestStatus(result["status"].upper())
-                
-                # ==================== 结果收集阶段 ====================
-                # 9. 创建步骤执行结果
-                response_data = result["response"]
-                if not isinstance(response_data, dict):
-                    response_data = {"text": response_data}
-                step_result = StepResult(
-                    id=step.id,
-                    step_id=step.id,
-                    step_name=step.name,
-                    status=status,
-                    start_time=datetime.utcnow(),
-                    end_time=datetime.utcnow(),
-                    duration=result["duration"],
-                    request_data={
-                        "headers": processed_headers,
-                        "params": processed_params,
-                        "body": processed_body,
-                        "request_type": step.request_type.value if hasattr(step.request_type, 'value') else str(step.request_type),
-                        "file_config": processed_file_config
-                    },
-                    response_data=response_data,
-                    error_message=result["error_message"]
-                )
-                step_results.append(step_result)
-                
-                # 10. 更新进度计数器
-                current += 1
-                
-                # ==================== 进度推送阶段 ====================
-                # 11. 通过 WebSocket 实时推送执行进度
-                if websocket_list:
-                    progress = int(current / total_steps * 100)
-                    msg = {
-                        "progress": progress, 
-                        "text": f"正在执行: {tc.name} - {step.name}", 
-                        "status": status
-                    }
-                    for ws in websocket_list:
-                        try:
-                            await ws.send_json(msg)
-                        except:
-                            pass
-                
-                print(f"步骤 {step.name} 执行完成，状态: {status}")
-            
-            # ==================== 用例结果汇总阶段 ====================
-            # 12. 汇总测试用例的整体执行结果
-            if step_results:
-                # 判断用例整体状态：只有当所有步骤都通过时，用例才算通过
-                case_status = TestStatus.PASSED if all(s.status == TestStatus.PASSED for s in step_results) else TestStatus.FAILED
-                # 计算用例总耗时
-                case_duration = sum(s.duration for s in step_results)
-                
-                # 创建用例执行结果
-                testcase_result = TestcaseResult(
-                    id=tc.id,
-                    name=tc.name,
-                    description=tc.description,
-                    status=case_status,
-                    duration=case_duration,
-                    steps=step_results
-                )
-                testcase_results.append(testcase_result)
-                
-                print(f"测试用例 {tc.name} 执行完成，状态: {case_status}，耗时: {case_duration:.2f}s")
+                # ==================== 用例结果汇总阶段 ====================
+                # 12. 汇总测试用例的整体执行结果
+                if step_results:
+                    # 判断用例整体状态：只有当所有步骤都通过时，用例才算通过
+                    case_status = TestStatus.PASSED if all(s.status == TestStatus.PASSED for s in step_results) else TestStatus.FAILED
+                    # 计算用例总耗时
+                    case_duration = sum(s.duration for s in step_results)
+                    
+                    # 创建用例执行结果
+                    testcase_result = TestcaseResult(
+                        id=tc.id,
+                        name=tc.name,
+                        description=tc.description,
+                        status=case_status,
+                        duration=case_duration,
+                        steps=step_results
+                    )
+                    
+                    logger.info(f"测试用例 {tc.name} 执行完成，状态: {case_status}，耗时: {case_duration:.2f}s")
+                    return testcase_result
+                return None
+
+        # ==================== 并发任务启动 ====================
+        logger.info(f"启动并发执行，最大并发数: {concurrency_limit}")
+        tasks = [execute_single_testcase(testcase.id) for testcase in testcases]
+        
+        # 等待所有任务完成
+        results = await asyncio.gather(*tasks)
+        
+        # 过滤掉 None 结果 (没有步骤的用例)
+        testcase_results = [r for r in results if r is not None]
 
         # ==================== 执行完成阶段 ====================
         # 13. 确保推送100%完成消息
+        current = shared_state["current_progress"]
         if websocket_list and current == total_steps:
             msg = {"progress": 100, "text": "测试执行完成", "status": TestStatus.COMPLETED}
             for ws in websocket_list:
@@ -366,7 +424,7 @@ class TestreportService:
                 except:
                     pass
         
-        print(f"所有测试用例执行完成，共执行 {len(testcase_results)} 个用例")
+        logger.info(f"所有测试用例执行完成，共执行 {len(testcase_results)} 个用例")
         return testcase_results
 
     async def _get_testcase(self, testcase_id: str):
@@ -522,19 +580,29 @@ class TestreportService:
         query = select(Testreport).options(
             selectinload(Testreport.testsuite)
         )
+        
+        # 计数查询
+        count_query = select(func.count()).select_from(Testreport)
 
         if status:
             query = query.where(Testreport.status == status)
+            count_query = count_query.where(Testreport.status == status)
 
         if project_id:
             # 需要通过 testsuite 关联 project
-            query = query.join(Testsuite).where(Testsuite.project_id == project_id)
+            join_stmt = query.join(Testsuite)
+            query = join_stmt.where(Testsuite.project_id == project_id)
+            count_query = count_query.join(Testsuite).where(Testsuite.project_id == project_id)
             
         # 按创建时间倒序排列，最近的在前面
         query = query.order_by(Testreport.created_time.desc())
 
-        query = query.offset(skip).limit(limit)
+        # 执行计数查询
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar()
 
+        # 执行分页查询
+        query = query.offset(skip).limit(limit)
         result = await self.db.execute(query)
         testreports = result.scalars().all()
         
@@ -551,14 +619,14 @@ class TestreportService:
                     start_time=report.start_time,
                     end_time=report.end_time,
                     duration=report.duration,
+                    pass_rate=report.pass_rate,
                     total_cases=report.total_cases,
                     passed_cases=report.passed_cases,
                     failed_cases=report.failed_cases,
-                    skipped_cases=getattr(report, "skipped_cases", 0),
-                    pass_rate=report.pass_rate
+                    skipped_cases=report.skipped_cases,
                 )
             )
-        return reports_data # 返回 Pydantic 模型列表
+        return reports_data, total
 
     async def delete_all_reports(self):
         """删除所有测试报告"""

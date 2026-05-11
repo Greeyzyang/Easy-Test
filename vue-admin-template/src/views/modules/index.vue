@@ -44,9 +44,9 @@
           <span>{{ scope.row.project ? scope.row.project.name : '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="描述" show-overflow-tooltip>
+      <el-table-column label="描述" min-width="200">
         <template slot-scope="scope">
-          <span>{{ scope.row.description || '-' }}</span>
+          <EllipsisCell :value="scope.row.description || '-'" :detect-json="false" />
         </template>
       </el-table-column>
       <el-table-column label="创建时间" width="160" align="center">
@@ -88,12 +88,14 @@
 import { getModuleList, deleteModule, createModule } from '@/api/module'
 import { getProjectList } from '@/api/project'
 import { formatDateTime } from '@/utils/format'
-import Pagination from '@/components/Pagination'
+import Pagination from '@/components/Layout/Pagination'
+import EllipsisCell from '@/components/Common/EllipsisCell'
 
 export default {
   name: 'ModuleList',
-  components: { 
+  components: {
     Pagination,
+    EllipsisCell
   },
   data() {
     return {
@@ -110,23 +112,20 @@ export default {
     }
   },
   created() {
-  this.getProjects().then(() => {
-    this.getList()
-  })
+    this.getProjects().then(() => {
+      this.getList()
+    })
   },
   methods: {
     async getList() {
       this.listLoading = true
       try {
-        const response = await getModuleList({
-          page: this.listQuery.page,
-          limit: this.listQuery.limit,
-          name: this.listQuery.name,
-          project_id: this.listQuery.project_id
-        })
-        
-        if (response && response.code === '0' && Array.isArray(response.data)) {
-          this.list = response.data.map(item => {
+        const response = await getModuleList(this.listQuery)
+
+        // 后端返回 { code: '0', data: { items: [...], total: 100 } }
+        if (response && response.code === '0' && response.data) {
+          const { items, total } = response.data
+          this.list = (items || []).map(item => {
             const project = this.projectOptions.find(p => p.id === item.project_id)
             return {
               ...item,
@@ -135,7 +134,7 @@ export default {
               updated_time: item.updated_time ? new Date(item.updated_time).toLocaleString() : '-'
             }
           })
-          this.total = response.data.length
+          this.total = total || 0
         } else {
           console.error('Unexpected response format:', response)
           this.$message.error('获取模块列表失败：数据格式错误')
@@ -151,8 +150,9 @@ export default {
     async getProjects() {
       try {
         const response = await getProjectList({ limit: 100 })
-        if (response && response.code === '0' && Array.isArray(response.data)) {
-          this.projectOptions = response.data.map(item => ({
+        if (response && response.code === '0' && response.data) {
+          const items = response.data.items || response.data
+          this.projectOptions = items.map(item => ({
             id: item.id,
             name: item.name,
             description: item.description || '-'
@@ -172,10 +172,10 @@ export default {
       this.getList()
     },
     handleCreate() {
-      this.$router.push('/modules/create')
+      this.$router.push('/design/modules/create')
     },
     handleUpdate(row) {
-      this.$router.push(`/modules/edit/${row.id}`)
+      this.$router.push(`/design/modules/edit/${row.id}`)
     },
     async handleDelete(row) {
       try {
@@ -206,7 +206,7 @@ export default {
         // 获取所有模块名称
         const allModules = await getModuleList({ limit: 1000 })
         const existingNames = allModules.data.map(item => item.name)
-        
+
         // 生成新名称
         let newName = row.name
         let counter = 1
@@ -214,7 +214,7 @@ export default {
           counter++
         }
         newName = newName + ` (${counter})`
-        
+
         // 复制数据，修改名称
         const copyData = {
           ...row,
@@ -223,7 +223,7 @@ export default {
           created_time: undefined,
           updated_time: undefined
         }
-        
+
         // 创建新的模块
         await createModule(copyData)
         this.$message.success('复制成功')
@@ -266,4 +266,4 @@ export default {
   margin-top: 20px;
   text-align: right;
 }
-</style> 
+</style>

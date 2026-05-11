@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
 from .teststep import TestStepCreate, TestStepInTestcase, TestStepDetail
 from app.schemas.base_schemas import TestcaseStatus
@@ -8,10 +8,18 @@ class TestcaseBase(BaseModel):
     name: str
     description: Optional[str] = None
     priority: Optional[int] = 1
-    tags: List[str] = None
+    module_id: Optional[str] = None
+    tags: Optional[List[str]] = Field(default_factory=list)
     status: Optional[str] = "active"
     created_time: Optional[datetime] = None
     updated_time: Optional[datetime] = None
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def handle_none_tags(cls, v):
+        if v is None:
+            return []
+        return v
 
 
 class TestcaseCreate(TestcaseBase):
@@ -30,9 +38,16 @@ class TestcaseInSuite(TestcaseBase):
     class Config:
         from_attributes = True
 
+class ModuleSimple(BaseModel):
+    id: str
+    name: str
+    class Config:
+        from_attributes = True
+
 class TestcaseRead(TestcaseBase):
     id: str
     steps: List[TestStepInTestcase] = []
+    module: Optional[ModuleSimple] = None
     
     class Config:
         from_attributes = True

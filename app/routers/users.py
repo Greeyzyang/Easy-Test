@@ -1,10 +1,10 @@
 import uuid
 from typing import Optional
+import asyncio
 from fastapi import Depends, Request, HTTPException, APIRouter
 from fastapi_users import BaseUserManager, FastAPIUsers
 from fastapi_users.authentication import (
     AuthenticationBackend,
-    CookieTransport,
     JWTStrategy,
     BearerTransport,
 )
@@ -14,29 +14,17 @@ from app.database import User, get_user_db, CustomSQLAlchemyUserDatabase, get_db
 from app.schemas.user import UserCreate, UserRead, UserUpdate
 from app.services.email_service import EmailService
 from passlib.context import CryptContext
-import logging
+from app.utils.logger import get_logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # 设置日志
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 
 def get_jwt_strategy():
     return JWTStrategy(secret=SECRET, lifetime_seconds=60*60*12)
 
-# Cookie 认证
-cookie_transport = CookieTransport(
-    cookie_name="X-Token",
-    cookie_secure=False,
-    cookie_samesite="lax",
-    cookie_path="/",
-)
-cookie_auth_backend = AuthenticationBackend(
-    name="jwt-cookie",
-    transport=cookie_transport,
-    get_strategy=get_jwt_strategy,
-)
 
 # Bearer Token 认证
 bearer_transport = BearerTransport(tokenUrl="auth/jwt/login")
@@ -140,7 +128,7 @@ class UserManager(BaseUserManager[User, str]):
             if "is_active" not in user_dict:
                 user_dict["is_active"] = True
             if "is_verified" not in user_dict:
-                user_dict["is_verified"] = True
+                user_dict["is_verified"] = False
                 
             # 记录最终要发送的字典
             logger.debug(f"最终用户字典: {user_dict}")
@@ -164,16 +152,8 @@ class UserManager(BaseUserManager[User, str]):
                 raise HTTPException(status_code=500, detail=f"创建用户失败: {str(e)}")
 
     async def on_after_register(self, user: User, request: Optional[Request] = None):
-        logger.info(f"用户 {user.id} ({user.email}) 已注册成功.")
-        try:
-            email_service = EmailService()
-            ok = await email_service.send_welcome_email(to_email=user.email, username=user.email)
-            if ok:
-                logger.info(f"欢迎邮件发送成功 -> {user.email}")
-            else:
-                logger.warning(f"欢迎邮件发送返回 False（可能未投递） -> {user.email}")
-        except Exception as e:
-            logger.error(f"发送欢迎邮件失败: {e}")
+        logger.info(f"用户 {user.id} ({user.email}) 已注册成功, 待邮箱验证.")
+        # 保持此处不发送欢迎邮件，待验证通过后由用户自行触发或后续扩展
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Optional[Request] = None
@@ -197,13 +177,11 @@ class UserManager(BaseUserManager[User, str]):
         logger.info(f"为用户 {user.id} 请求验证. 验证令牌: {token}")
         try:
             email_service = EmailService()
-            ok = await email_service.send_verification_email(
-                to_email=user.email, username=user.email, token=token
+            asyncio.create_task(
+                email_service.send_verification_email(
+                    to_email=user.email, username=user.email, token=token
+                )
             )
-            if ok:
-                logger.info(f"邮箱验证邮件发送成功 -> {user.email}")
-            else:
-                logger.warning(f"邮箱验证邮件发送返回 False（可能未投递） -> {user.email}")
         except Exception as e:
             logger.error(f"发送邮箱验证邮件失败: {e}")
 
@@ -218,7 +196,7 @@ async def get_user_manager(user_db: SQLAlchemyUserDatabase = Depends(get_user_db
 # FastAPI Users 实例
 fastapi_users = FastAPIUsers[User, str](
     get_user_manager,
-    [cookie_auth_backend, bearer_auth_backend],
+    [bearer_auth_backend],
 )
 
 # Current user dependencies
@@ -231,7 +209,6 @@ router = APIRouter(prefix="/users", tags=["users"])
 # 导出 UserManager 类
 __all__ = [
     "UserManager",
-    "cookie_auth_backend",
     "bearer_auth_backend",
     "fastapi_users",
     "get_user_manager",

@@ -1,15 +1,24 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, Literal, List
+from enum import Enum
 from .base_schemas import TestStepStatus, RequestType, VariableSource, ExtractVariableConfig
 from .interface import InterfaceRead
 from datetime import datetime
 
 # 定义 JSON 值断言规则的模型
 class JsonValueAssertionRule(BaseModel):
-    """表示一个单一的 JSON 值断言规则"""
-    path: str = Field(..., description="JSONPath 表达式")
-    value: Any = Field(..., description="预期值")
-    operator: Literal["equal", "not_equal", "contains", "not_contains", "greater_than", "less_than", "exists", "not_exists"] = Field(..., description="比较操作符")
+    """表示一个单一的断言规则"""
+    source: VariableSource = Field(default=VariableSource.RESPONSE, description="断言来源")
+    path: Optional[str] = Field(default=None, description="JSONPath 表达式 (RESPONSE/BODY) 或 Header Key (HEADERS)")
+    value: Any = Field(None, description="预期值")
+    operator: Literal[
+        "equal", "not_equal", "contains", "not_contains", 
+        "greater_than", "less_than", "greater_or_equal", "less_or_equal",
+        "exists", "not_exists",
+        "length_equal", "length_not_equal", "length_greater_than", "length_less_than",
+        "length_greater_or_equal", "length_less_or_equal",
+        "is_array", "is_dict", "is_string", "is_number", "is_boolean", "is_null", "not_null"
+    ] = Field(..., description="比较操作符")
     description: Optional[str] = Field(None, description="断言描述") # 可选的描述字段
 
 class ExtractVariableConfig(BaseModel):

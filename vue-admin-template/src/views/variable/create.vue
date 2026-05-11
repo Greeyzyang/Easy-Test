@@ -9,9 +9,10 @@
         <el-input
           type="textarea"
           v-model="form.value"
-          placeholder="请输入变量值"
+          placeholder="请输入变量值（支持 JSON 格式）"
           :rows="6"
         />
+        <el-button type="text" size="mini" @click="formatJsonInput">格式化 JSON</el-button>
       </el-form-item>
       <el-form-item label="描述" prop="description">
         <el-input v-model="form.description" placeholder="请输入描述" />
@@ -43,11 +44,20 @@ export default {
     onSubmit() {
       createVariable(this.form).then(() => {
         this.$message.success('创建成功')
-        router.push({ path: '/variable/list' })
+        this.$router.push({ path: '/design/variables' })
       })
     },
     onCancel() {
-      router.push({ path: '/variable/list' })
+      this.$router.push({ path: '/design/variables' })
+    },
+    formatJsonInput() {
+      try {
+        const obj = JSON.parse(this.form.value)
+        this.form.value = JSON.stringify(obj, null, 2)
+        this.$message.success('格式化成功')
+      } catch (e) {
+        this.$message.warning('无效的 JSON 格式')
+      }
     }
   }
 }

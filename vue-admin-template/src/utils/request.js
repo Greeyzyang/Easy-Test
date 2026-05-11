@@ -8,8 +8,11 @@ import router from '@/router'
 const service = axios.create({
   baseURL: process.env.VUE_APP_BASE_API, // url = base url + request url
   withCredentials: true, // 启用凭证，允许跨域请求携带cookie
-  timeout: 15000 // 增加超时时间到 15 秒
+  timeout: 30000
 })
+
+// 防止重复弹出登录框
+let isRelogin = false
 
 // request interceptor
 service.interceptors.request.use(
@@ -98,6 +101,10 @@ service.interceptors.response.use(
     console.error('响应错误:', error)
     let message = '网络请求失败'
 
+    const reqUrl = (error && error.config && error.config.url) ? error.config.url : ''
+    // 对邮箱验证相关接口，避免全局重复弹错（由业务页面自行提示）
+    const suppressGlobalMessage = reqUrl.includes('/auth/request-verify-token') || reqUrl.includes('/auth/verify')
+
     if (error.code === 'ECONNABORTED' && error.message.indexOf('timeout') !== -1) {
       message = '请求超时，请重试'
     } else if (error.response) {
@@ -111,23 +118,30 @@ service.interceptors.response.use(
 
       // 处理 401 错误
       if (status === 401) {
-        MessageBox.confirm('您已登出，可以取消以停留在此页面，或重新登录', '确认登出', {
-          confirmButtonText: '重新登录',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }).then(() => {
-          store.dispatch('user/resetToken').then(() => {
-            location.reload()
+        if (!isRelogin) {
+          isRelogin = true
+          MessageBox.confirm('您已登出，可以取消以停留在此页面，或重新登录', '确认登出', {
+            confirmButtonText: '重新登录',
+            cancelButtonText: '取消',
+            type: 'warning'
+          }).then(() => {
+            store.dispatch('user/resetToken').then(() => {
+              location.reload()
+            })
+          }).finally(() => {
+            isRelogin = false
           })
-        })
+        }
       }
     }
 
-    Message({
-      message: message,
-      type: 'error',
-      duration: 5 * 1000
-    })
+    if (!suppressGlobalMessage) {
+      Message({
+        message: message,
+        type: 'error',
+        duration: 5 * 1000
+      })
+    }
     return Promise.reject(new Error(message))
   }
 )

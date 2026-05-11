@@ -7,7 +7,8 @@
       <el-form-item label="项目描述" prop="description">
         <el-input v-model="form.description" type="textarea" rows="4" placeholder="请输入项目描述" />
       </el-form-item>
-      <el-form-item>
+
+      <el-form-item style="margin-top: 20px;">
         <el-button type="primary" @click="onSubmit" :loading="submitLoading">保存</el-button>
         <el-button @click="onCancel">取消</el-button>
       </el-form-item>
@@ -26,7 +27,9 @@ export default {
       submitLoading: false,
       form: {
         name: '',
-        description: ''
+        description: '',
+        headers: {},
+        variables: {}
       },
       rules: {
         name: [
@@ -50,9 +53,12 @@ export default {
         .then(response => {
           console.log('获取项目详情响应:', response)
           if (response && response.data) {
+            const data = response.data
             this.form = {
-              name: response.data.name || '',
-              description: response.data.description || ''
+              name: data.name || '',
+              description: data.description || '',
+              headers: data.headers || {},
+              variables: data.variables || {}
             }
           } else {
             this.$message.error('获取项目详情失败：数据格式错误')
@@ -88,14 +94,14 @@ export default {
                 message: '更新成功',
                 type: 'success'
               })
-              this.$router.push('/projects/list')
+              this.$router.push('/design/projects')
             } else {
               this.$message.error(response.msg || '更新失败')
             }
           })
           .catch(error => {
             console.error('更新项目失败:', error)
-            this.$message.error(error.response?.data?.msg || '更新失败，请检查网络连接')
+            this.$message.error(error.response?.data?.detail || error.message || '更新失败，请检查网络连接')
           })
           .finally(() => {
             loading.close()
@@ -104,7 +110,7 @@ export default {
       })
     },
     onCancel() {
-      this.$router.push('/projects/list')
+      this.$router.push('/design/projects')
     }
   }
 }
@@ -113,5 +119,11 @@ export default {
 <style scoped>
 .app-container {
   padding: 20px;
+}
+.editor-container {
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  overflow: hidden;
+  height: 300px;
 }
 </style> 

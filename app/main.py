@@ -11,12 +11,14 @@ from app.routers import (
     functions_router,
     variables_router,
     assistant_router,
-    metrics_router
+    metrics_router,
+    ai_models_router,
+    mcp_servers_router,
+    performance_tests_router
 )
 from app.utils.exceptions import http_exception_handler
 from app.schemas.user import UserCreate, UserRead, UserUpdate
 from app.routers.users import (
-    cookie_auth_backend,
     bearer_auth_backend,
     fastapi_users,
     get_user_manager,
@@ -27,6 +29,8 @@ from app.database import User, create_db_and_tables, get_db
 from contextlib import asynccontextmanager
 from sqlalchemy import select
 from fastapi.responses import JSONResponse
+from app.utils.logger import setup_logging, get_logger
+import os
 import logging
 from app.config import SECRET
 from fastapi_users.jwt import decode_jwt
@@ -38,18 +42,11 @@ from datetime import datetime
 from app.database import engine, Base
 from app.celery_app import celery_app
 from app.tasks import testsuite_tasks, ai_tasks
-import os
 
-# 配置日志
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-# 降低第三方库的告警噪音（Jira初始化不可达或SSL问题时的重试日志）
-logging.getLogger("jira.resilientsession").setLevel(logging.ERROR)
-logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
+# 初始化统一日志
+# 默认开启DEBUG模式以便调试
+setup_logging(level=logging.DEBUG)
+logger = get_logger(__name__)
 
 # 创建一个 user_manager 实例
 user_manager = None  # 移除直接实例化
@@ -154,8 +151,12 @@ app.include_router(functions_router)
 app.include_router(variables_router)
 app.include_router(assistant_router)
 app.include_router(metrics_router)
-app.include_router(fastapi_users.get_auth_router(cookie_auth_backend), prefix="/auth/jwt", tags=["auth"])
-app.include_router(fastapi_users.get_auth_router(bearer_auth_backend), prefix="/auth/jwt-bearer", tags=["auth"])
+app.include_router(ai_models_router)
+app.include_router(mcp_servers_router)
+app.include_router(performance_tests_router)
+# 将 Bearer 认证挂载到标准 /auth/jwt 路径，统一登录接口
+# 之前的 cookie_auth_backend 已被移除，因为前端统一使用 Bearer Token
+app.include_router(fastapi_users.get_auth_router(bearer_auth_backend), prefix="/auth/jwt", tags=["auth"])
 app.include_router(fastapi_users.get_register_router(UserRead, UserCreate), prefix="/auth", tags=["auth"])
 app.include_router(fastapi_users.get_reset_password_router(), prefix="/auth", tags=["auth"])
 app.include_router(fastapi_users.get_verify_router(UserRead), prefix="/auth", tags=["auth"])

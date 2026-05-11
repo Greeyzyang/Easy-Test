@@ -44,17 +44,15 @@ router.beforeEach(async(to, from, next) => {
       }
     }
   } else {
-    // 无本地token时，尝试通过Cookie获取用户信息（fastapi-users cookie 认证）
+    /* has no token */
+
     if (whiteList.indexOf(to.path) !== -1) {
+      // in the free login whitelist, go directly
       next()
     } else {
-      try {
-        await store.dispatch('user/getInfo')
-        next()
-      } catch (error) {
-        next(`/login?redirect=${to.path}`)
-        NProgress.done()
-      }
+      // other pages that do not have permission to access are redirected to the login page.
+      next(`/login?redirect=${to.path}`)
+      NProgress.done()
     }
   }
 })

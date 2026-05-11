@@ -8,6 +8,21 @@
         class="filter-item"
         @keyup.enter.native="handleFilter"
       />
+      <el-select
+        v-model="listQuery.module_id"
+        placeholder="所属模块"
+        clearable
+        style="width: 200px"
+        class="filter-item"
+        @change="handleFilter"
+      >
+        <el-option
+          v-for="item in moduleOptions"
+          :key="item.id"
+          :label="item.name"
+          :value="item.id"
+        />
+      </el-select>
       <el-button v-waves class="filter-item" type="primary" icon="el-icon-search" @click="handleFilter">
         搜索
       </el-button>
@@ -28,6 +43,11 @@
       <el-table-column label="用例名称" min-width="150">
         <template slot-scope="scope">
           <span class="link-type" @click="handleUpdate(scope.row)">{{ scope.row.name }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="所属模块" width="150" align="center">
+        <template slot-scope="scope">
+          <span>{{ scope.row.module ? scope.row.module.name : '-' }}</span>
         </template>
       </el-table-column>
       <el-table-column
@@ -86,8 +106,9 @@
 
 <script>
 import { getTestCases, deleteTestCase, getTestCase, createTestCase } from '@/api/testcase'
+import { getModuleList } from '@/api/module'
 import waves from '@/directive/waves'
-import Pagination from '@/components/Pagination'
+import Pagination from '@/components/Layout/Pagination'
 import { formatDateTime } from '@/utils/format'
 
 export default {
@@ -99,25 +120,40 @@ export default {
       list: null,
       total: 0,
       listLoading: true,
+      moduleOptions: [],
       listQuery: {
         page: 1,
         limit: 20,
         name: undefined,
+        module_id: undefined
       }
     }
   },
   created() {
+    this.getModules()
     this.getList()
   },
   methods: {
+    async getModules() {
+      try {
+        const response = await getModuleList({ page: 1, limit: 100 })
+        if (response && response.code === '0') {
+          this.moduleOptions = response.data.items || []
+        }
+      } catch (error) {
+        console.error('Fetch modules failed', error)
+      }
+    },
     async getList() {
       this.listLoading = true
       try {
         const response = await getTestCases(this.listQuery)
         console.log('API Response:', response)
-        if (response && response.data) {
-          this.list = response.data.items || response.data
-          this.total = response.data.total || response.data.length
+        // 后端返回 { code: '0', data: { items: [...], total: 100 } }
+        if (response && response.code === '0' && response.data) {
+          const { items, total } = response.data
+          this.list = items || []
+          this.total = total || 0
         } else {
           console.error('Unexpected response format:', response)
           this.$message.error('数据格式错误')
@@ -134,10 +170,10 @@ export default {
       this.getList()
     },
     handleCreate() {
-      this.$router.push('/testcases/create')
+      this.$router.push('/design/testcases/create')
     },
     handleUpdate(row) {
-      this.$router.push(`/testcases/edit/${row.id}`)
+      this.$router.push(`/design/testcases/edit/${row.id}`)
     },
     async handleDelete(row) {
       try {
@@ -165,7 +201,8 @@ export default {
         
         // 获取所有测试用例名称
         const allTestcases = await getTestCases({ limit: 1000 })
-        const existingNames = allTestcases.data.map(item => item.name)
+        const items = allTestcases.data.items || allTestcases.data
+        const existingNames = items.map(item => item.name)
         
         // 生成新名称
         let newName = data.name

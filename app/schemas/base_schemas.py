@@ -18,7 +18,6 @@ class InterfaceMethod(str, Enum):
 class RequestType(str, Enum):
     JSON = "JSON"
     FORM = "FORM"
-    FILE = "FILE"
 
 class TestcaseStatus(str, Enum):
     PENDING = "PENDING"
@@ -28,11 +27,13 @@ class TestcaseStatus(str, Enum):
 
 
 class VariableSource(str, Enum):
-    """变量来源类型"""
-    RESPONSE = "RESPONSE"      # 响应体
+    """变量与断言来源类型"""
+    RESPONSE = "RESPONSE"      # 响应体 (默认)
     HEADERS = "HEADERS"        # 响应头 
-    COOKIES = "COOKIES"      # Cookie
-    BODY = "BODY"            # 请求体
+    COOKIES = "COOKIES"        # Cookie
+    BODY = "BODY"              # 请求体
+    STATUS = "STATUS"          # 响应状态码
+    RESPONSE_TIME = "RESPONSE_TIME" # 响应时间
 
 class TestStatus(str, Enum):
     """测试状态枚举"""
@@ -42,6 +43,7 @@ class TestStatus(str, Enum):
     FAILED = "FAILED"
     PASSED = "PASSED"
     SKIPPED = "SKIPPED"
+    STOPPED = "STOPPED"
 
 class ExtractVariableConfig(BaseModel):
     """变量提取配置"""
@@ -66,9 +68,15 @@ class BaseInterface(BaseModel):
     request_type: Optional[RequestType] = Field(None, description="请求体类型")
     headers: Optional[Dict[str, Any]] = Field(None, description="请求头")
     params: Optional[Dict[str, Any]] = Field(None, description="请求参数")
-    body: Optional[Dict[str, Any]] = Field(None, description="请求体")
+    body: Optional[Any] = Field(None, description="请求体示例")
+    body_schema: Optional[Dict[str, Any]] = Field(None, description="请求体结构定义")
     module_id: str = Field(..., description="所属模块ID")    
 
 class KBQueryRequest(BaseModel):
     question: str
     top_k: int = 4
+
+class PaginationParams(BaseModel):
+    """分页查询参数模型"""
+    skip: int = Field(0, ge=0, description="跳过的记录数")
+    limit: int = Field(10, gt=0, description="返回的最大记录数")

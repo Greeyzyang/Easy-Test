@@ -2,13 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
+from sqlalchemy import func
 from .users import current_active_user
 from app.database import get_db, User
 from app.models import Project, Module, Interface, Testsuite, Testcase
 from app.schemas.project import ProjectCreate, ProjectRead
+from app.schemas.base_schemas import PaginationParams
 from app.schemas.module import ModuleRead
 from typing import List
 from app.utils.response import create_response, ResponseModel
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/rest/v1/projects", tags=["projects"])
 
@@ -22,7 +27,8 @@ async def create_project(project: ProjectCreate, db: AsyncSession = Depends(get_
     result = await db.execute(
         select(Project)
         .options(
-            selectinload(Project.modules)
+            selectinload(Project.modules),
+            selectinload(Project.testsuites)
         )
         .where(Project.id == db_project.id)
     )
@@ -36,25 +42,35 @@ async def create_project(project: ProjectCreate, db: AsyncSession = Depends(get_
 
 @router.get("/", response_model=ResponseModel)
 async def read_projects(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(10, gt=0),
+    params: PaginationParams = Depends(),
     name: str | None = Query(None, description="Filter by project name"),
     db: AsyncSession = Depends(get_db)
 ):
+    # 基础查询
     query = select(Project).options(
-        selectinload(Project.modules)
+        selectinload(Project.modules),
+        selectinload(Project.testsuites)
     )
+    
+    # 计数查询
+    count_query = select(func.count()).select_from(Project)
 
     if name:
-        query = query.where(Project.name.like(f"%{name}%"))
+        filter_stmt = Project.name.like(f"%{name}%")
+        query = query.where(filter_stmt)
+        count_query = count_query.where(filter_stmt)
 
-    query = query.offset(skip).limit(limit)
+    # 执行计数查询
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
 
+    # 执行分页查询
+    query = query.offset(params.skip).limit(params.limit)
     result = await db.execute(query)
     projects = result.scalars().all()
     
     projects_data = [ProjectRead.model_validate(project).model_dump() for project in projects]
-    return await create_response(data=projects_data)
+    return await create_response(data={"items": projects_data, "total": total})
 
 
 @router.get("/{project_id}/", response_model=ResponseModel)
@@ -62,7 +78,8 @@ async def read_project(project_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Project)
         .options(
-            selectinload(Project.modules)
+            selectinload(Project.modules),
+            selectinload(Project.testsuites)
         )
         .where(Project.id == project_id)
     )
@@ -79,19 +96,23 @@ async def update_project(
     project_id: str,
     project: ProjectCreate,
     db: AsyncSession = Depends(get_db)):
+    logger.info(f"Updating project: {project_id}")
     result = await db.execute(select(Project).where(Project.id == project_id))
     db_project = result.scalar_one_or_none()
     if not db_project:
+        logger.warning(f"Project not found for update: {project_id}")
         raise HTTPException(status_code=404, detail="Project not found")
     update_data = project.dict(exclude_unset=True)  
     for key, value in update_data.items():
         setattr(db_project, key, value)
     await db.commit()
     await db.refresh(db_project)
+    logger.info(f"Project {project_id} updated successfully")
     result = await db.execute(
         select(Project)
         .options(
-            selectinload(Project.modules)
+            selectinload(Project.modules),
+            selectinload(Project.testsuites)
         )
         .where(Project.id == project_id)
     )
@@ -105,12 +126,15 @@ async def update_project(
 
 @router.delete("/{project_id}/")
 async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
+    logger.info(f"Deleting project: {project_id}")
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalar_one_or_none()
     if project is None:
+        logger.warning(f"Project not found for deletion: {project_id}")
         raise HTTPException(status_code=404, detail="Project not found")
     await db.delete(project)
     await db.commit()
+    logger.info(f"Project {project_id} deleted successfully")
     return await create_response(data=None, msg="Project deleted successfully")
 
 

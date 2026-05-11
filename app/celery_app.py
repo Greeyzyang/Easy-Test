@@ -1,6 +1,9 @@
 import os
 from celery import Celery
 from app.config import REDIS_URL
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # 初始化 Celery 应用
 # broker: 消息代理，用于存储任务队列
@@ -12,7 +15,9 @@ celery_app = Celery(
     backend=REDIS_URL,
     include=[
         'app.tasks.testsuite_tasks',
-        'app.tasks.ai_tasks',  # 加上这一行
+        'app.tasks.ai_tasks',
+        'app.tasks.interface_tasks',
+        'app.tasks.performance_test_tasks',
     ]
 )
 
@@ -60,9 +65,9 @@ def setup_periodic_tasks(sender, **kwargs):
                     execute_testsuite_task.s(s.id),
                     name=f"schedule_testsuite_{s.id}",
                 )
-                print(f"✓ 注册定时任务 schedule_testsuite_{s.id}: {s.cron_expression}")
+                logger.info(f"✓ 注册定时任务 schedule_testsuite_{s.id}: {s.cron_expression}")
             except Exception as e:
-                print(f"! 注册 {s.id} 失败: {e}")
+                logger.error(f"! 注册 {s.id} 失败: {e}")
     finally:
         session.close()
 

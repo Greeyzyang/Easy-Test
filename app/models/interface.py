@@ -28,7 +28,8 @@ class Interface(Base):
     )
     headers = Column(JSON, nullable=True, info={"description": "请求头"})
     params = Column(JSON, nullable=True, info={"description": "请求参数"})
-    body = Column(JSON, nullable=True, info={"description": "请求体"})
+    body = Column(JSON, nullable=True, info={"description": "请求体示例"})
+    body_schema = Column(JSON, nullable=True, info={"description": "请求体结构定义"})
     
     # 添加外键字段
     module_id = Column(CHAR(36), ForeignKey("modules.id"), info={"description": "所属模块ID"})

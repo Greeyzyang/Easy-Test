@@ -33,25 +33,34 @@
       </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="onSubmit" :loading="submitLoading">保存</el-button>
+        <el-button type="success" @click="handleRun" icon="el-icon-video-play">调试运行</el-button>
         <el-button @click="onCancel">取消</el-button>
       </el-form-item>
     </el-form>
+
+    <run-function-dialog
+      :visible.sync="runDialogVisible"
+      :code="form.code"
+    />
   </div>
 </template>
 
 <script>
 import { getFunction, updateFunction } from '@/api/function'
-import MonacoEditor from '@/components/MonacoEditor'
+import MonacoEditor from '@/components/Editor/MonacoEditor'
+import RunFunctionDialog from './components/RunFunctionDialog'
 
 export default {
   name: 'FunctionEdit',
   components: {
-    MonacoEditor
+    MonacoEditor,
+    RunFunctionDialog
   },
   data() {
     return {
       loading: false,
       submitLoading: false,
+      runDialogVisible: false,
       form: {
         name: '',
         description: '',
@@ -98,6 +107,13 @@ export default {
     onEditorChange(value) {
       this.form.code = value
     },
+    handleRun() {
+      if (!this.form.code) {
+        this.$message.warning('请输入代码后再运行')
+        return
+      }
+      this.runDialogVisible = true
+    },
     onSubmit() {
       this.$refs.form.validate(valid => {
         if (valid) {
@@ -113,7 +129,7 @@ export default {
               message: '更新成功',
               type: 'success'
             })
-            this.$router.push('/functions/list')
+            this.$router.push('/design/functions')
           }).catch(error => {
             console.error('更新函数失败:', error)
             this.$message.error(error.response?.data?.msg || '更新函数失败')
@@ -124,7 +140,7 @@ export default {
       })
     },
     onCancel() {
-      this.$router.push('/functions/list')
+      this.$router.push('/design/functions')
     }
   }
 }

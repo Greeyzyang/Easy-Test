@@ -1,12 +1,23 @@
 <template>
   <div class="app-container">
     <div class="filter-container">
-      <el-input
+      <el-select
         v-model="selectedEnv"
-        placeholder="请输入环境变量名（参考全局变量）"
+        placeholder="请选择运行环境"
         class="filter-item"
         style="width: 200px;"
-      />
+        clearable
+      >
+        <el-option
+          v-for="item in envOptions"
+          :key="item.value"
+          :label="item.label"
+          :value="item.value"
+        >
+          <span style="float: left">{{ item.label }}</span>
+          <span style="float: right; color: #8492a6; font-size: 13px; margin-left: 10px">{{ item.value }}</span>
+        </el-option>
+      </el-select>
       <el-input
         v-model="listQuery.name"
         placeholder="任务名称"
@@ -42,9 +53,9 @@
           <span class="link-type" @click="handleUpdate(scope.row)">{{ scope.row.name }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="描述" show-overflow-tooltip>
+      <el-table-column label="描述" min-width="200">
         <template slot-scope="scope">
-          <span>{{ scope.row.description || '-' }}</span>
+          <EllipsisCell :value="scope.row.description || '-'" :detect-json="false" />
         </template>
       </el-table-column>
       <el-table-column label="用例数量" align="center" width="100">
@@ -74,25 +85,25 @@
             <div style="width: 100%; text-align: center; color: #409EFF;">{{ scope.row.progressText }}</div>
           </div>
           <div v-else style="display: flex; flex-direction: row; justify-content: center; align-items: center; flex-wrap: wrap;">
-            <el-button 
-              type="success" 
-              size="mini" 
-              :loading="scope.row.running" 
+            <el-button
+              type="success"
+              size="mini"
+              :loading="scope.row.running"
+              style="margin: 5px;"
               @click="handleRun(scope.row)"
-              style="margin: 5px;" 
             >
               运行
             </el-button>
-            <el-button type="info" size="mini" @click="handleSchedule(scope.row)" style="margin: 5px;">
+            <el-button type="info" size="mini" style="margin: 5px;" @click="handleSchedule(scope.row)">
               定时
             </el-button>
-            <el-button type="primary" size="mini" @click="handleUpdate(scope.row)" style="margin: 5px;">
+            <el-button type="primary" size="mini" style="margin: 5px;" @click="handleUpdate(scope.row)">
               编辑
             </el-button>
-            <el-button type="success" size="mini" @click="handleCopy(scope.row)" style="margin: 5px;">
+            <el-button type="success" size="mini" style="margin: 5px;" @click="handleCopy(scope.row)">
               复制
             </el-button>
-            <el-button type="danger" size="mini" @click="handleDelete(scope.row)" style="margin: 5px;">
+            <el-button type="danger" size="mini" style="margin: 5px;" @click="handleDelete(scope.row)">
               删除
             </el-button>
           </div>
@@ -140,13 +151,15 @@
 
 <script>
 import { getTestSuites, deleteTestSuite, createTestSuite, executeTestSuite, scheduleTestSuite } from '@/api/testsuite'
+import { getList as getVariables } from '@/api/variable'
 import waves from '@/directive/waves'
-import Pagination from '@/components/Pagination'
+import Pagination from '@/components/Layout/Pagination'
 import { formatDateTime } from '@/utils/format'
+import EllipsisCell from '@/components/Common/EllipsisCell'
 
 export default {
   name: 'TestSuiteList',
-  components: { Pagination },
+  components: { Pagination, EllipsisCell },
   directives: { waves },
   data() {
     return {
@@ -159,6 +172,7 @@ export default {
         name: undefined
       },
       selectedEnv: '',
+      envOptions: [],
       progressDialogVisible: false,
       progressPercent: 0,
       progressText: '',
@@ -179,20 +193,46 @@ export default {
   },
   created() {
     this.getList()
+    this.getEnvOptions()
   },
   methods: {
+    async getEnvOptions() {
+      try {
+        const response = await getVariables({ key: 'env' })
+        if (response && response.code === '0' && response.data && response.data.items) {
+          const envVar = response.data.items.find(item => item.key === 'env')
+          if (envVar && envVar.value) {
+            try {
+              const envMap = JSON.parse(envVar.value)
+              this.envOptions = Object.keys(envMap).map(key => ({
+                label: key,
+                value: envMap[key]
+              }))
+            } catch (e) {
+              console.error('解析 env 变量失败:', e)
+              // 如果不是 JSON，可能直接是一个值，或者格式错误
+              this.envOptions = []
+            }
+          }
+        }
+      } catch (error) {
+        console.error('获取全局变量失败:', error)
+      }
+    },
     async getList() {
       this.listLoading = true
       try {
         const response = await getTestSuites(this.listQuery)
+        console.log('getTestSuites response:', response)
+        // 后端返回 { code: '0', data: { items: [...], total: 100 } }
         if (response && response.code === '0' && response.data) {
-          this.list = (Array.isArray(response.data) ? response.data : []).map(item => ({
+          this.list = (response.data.items || []).map(item => ({
             ...item,
             running: false,
             progressPercent: 0,
             progressText: ''
           }))
-          this.total = response.total || this.list.length
+          this.total = response.data.total || 0
         } else {
           console.error('获取测试任务列表失败:', response)
           this.$message.error(response.message || '获取测试任务列表失败')
@@ -213,148 +253,148 @@ export default {
       this.getList()
     },
     handleCreate() {
-      this.$router.push('/testsuites/create')
+      this.$router.push('/execution/testsuites/create')
     },
     handleUpdate(row) {
-      this.$router.push(`/testsuites/edit/${row.id}`)
+      this.$router.push(`/execution/testsuites/edit/${row.id}`)
     },
     async handleRun(row) {
       // 优先使用页面上输入的环境变量，如果为空，则使用测试任务本身保存的环境变量
-      const envToUse = this.selectedEnv || row.env_name;
+      const envToUse = this.selectedEnv || row.env_name
       if (!envToUse) {
-        this.$message.error('请输入目标环境变量，或为测试任务设置一个默认环境');
-        return;
+        this.$message.error('请输入测试环境变量，或为测试任务设置一个默认环境')
+        return
       }
-      console.log('--- handleRun: 开始执行 ---', row.id);
-      this.$set(row, 'running', true);
-      this.$set(row, 'progressPercent', 0);
+      console.log('--- handleRun: 开始执行 ---', row.id)
+      this.$set(row, 'running', true)
+      this.$set(row, 'progressPercent', 0)
       // 读取环境变量
-      const baseApi = process.env.VUE_APP_BASE_API;
+      const baseApi = process.env.VUE_APP_BASE_API
 
       // 解析出主机和端口（开发环境是 http://localhost:8000，生产环境是 /prod-api，需特殊处理）
-      let wsHost;
+      let wsHost
       if (baseApi.startsWith('http')) {
         // 开发环境
-        wsHost = baseApi.replace(/^http/, 'ws');
+        wsHost = baseApi.replace(/^http/, 'ws')
       } else {
         // 生产环境，假设和前端同域
-        wsHost = window.location.origin.replace(/^http/, 'ws') + baseApi;
+        wsHost = window.location.origin.replace(/^http/, 'ws') + baseApi
       }
-      const wsUrl = `${wsHost}/rest/v1/testsuites/ws/progress/${row.id}`;
-      console.log('WebSocket URL:', wsUrl);
+      const wsUrl = `${wsHost}/rest/v1/testsuites/ws/progress/${row.id}`
+      console.log('WebSocket URL:', wsUrl)
 
       // 确保之前的WebSocket连接已关闭
       if (row.ws) {
-        row.ws.close();
+        row.ws.close()
       }
 
-      row.ws = new WebSocket(wsUrl);
-      console.log('WebSocket 实例创建成功');
+      row.ws = new WebSocket(wsUrl)
+      console.log('WebSocket 实例创建成功')
 
       // 1. 监听进度消息
       row.ws.onmessage = (event) => {
         try {
-          console.log('WebSocket onmessage: 收到消息', event.data);
-          const msg = JSON.parse(event.data);
-          console.log('收到进度消息：', msg);
-          this.$set(row, 'progressPercent', msg.progress);
-          this.$set(row, 'progressText', msg.text);
+          console.log('WebSocket onmessage: 收到消息', event.data)
+          const msg = JSON.parse(event.data)
+          console.log('收到进度消息：', msg)
+          this.$set(row, 'progressPercent', msg.progress)
+          this.$set(row, 'progressText', msg.text)
           if (msg.progress >= 100) {
-            console.log('进度达到100%，关闭WebSocket');
+            console.log('进度达到100%，关闭WebSocket')
             setTimeout(() => {
-              this.$set(row, 'running', false);
+              this.$set(row, 'running', false)
               if (row.ws && row.ws.readyState === WebSocket.OPEN) {
-                row.ws.close();
+                row.ws.close()
               }
-              console.log('WebSocket 已关闭');
-            }, 1000);
+              console.log('WebSocket 已关闭')
+            }, 1000)
           }
         } catch (error) {
-          console.error('解析WebSocket消息失败:', error);
+          console.error('解析WebSocket消息失败:', error)
         }
-      };
+      }
 
       // 2. 连接建立后再发起测试执行请求
-      row.ws.onopen = async () => {
-        console.log('WebSocket onopen: 连接已建立');
+      row.ws.onopen = async() => {
+        console.log('WebSocket onopen: 连接已建立')
         try {
-          console.log('发送 executeTestSuite 请求...');
+          console.log('发送 executeTestSuite 请求...')
           const response = await executeTestSuite(row.id, {
             env_name: envToUse
-          });
-          console.log('executeTestSuite 响应:', response);
+          })
+          console.log('executeTestSuite 响应:', response)
           if (response && response.code === '0') {
-            this.$message.success('测试任务开始执行');
+            this.$message.success('测试任务开始执行')
             setTimeout(() => {
               this.$router.push({
-                path: `/testreports/detail/${response.data.id}`
-              });
-            }, 1200);
+                path: `/execution/testreports/detail/${response.data.id}`
+              })
+            }, 1200)
           } else {
-            this.$message.error(response.message || '执行失败');
-            this.$set(row, 'running', false);
+            this.$message.error(response.message || '执行失败')
+            this.$set(row, 'running', false)
             if (row.ws && row.ws.readyState === WebSocket.OPEN) {
-              row.ws.close();
+              row.ws.close()
             }
-            console.error('executeTestSuite 执行失败:', response);
+            console.error('executeTestSuite 执行失败:', response)
           }
         } catch (error) {
-          console.error('executeTestSuite 请求异常:', error);
-          this.$message.error(error.response?.data?.message || '执行失败');
-          this.$set(row, 'running', false);
+          console.error('executeTestSuite 请求异常:', error)
+          this.$message.error(error.response?.data?.message || '执行失败')
+          this.$set(row, 'running', false)
           if (row.ws && row.ws.readyState === WebSocket.OPEN) {
-            row.ws.close();
+            row.ws.close()
           }
         }
-      };
+      }
 
       row.ws.onerror = (error) => {
-        console.error('WebSocket onerror: 连接失败', error);
-        this.$set(row, 'running', false);
-        this.$message.error('WebSocket 连接失败，无法实时显示进度');
+        console.error('WebSocket onerror: 连接失败', error)
+        this.$set(row, 'running', false)
+        this.$message.error('WebSocket 连接失败，无法实时显示进度')
         if (row.ws && row.ws.readyState === WebSocket.OPEN) {
-          row.ws.close();
+          row.ws.close()
         }
-      };
+      }
 
       row.ws.onclose = (event) => {
-        console.log('WebSocket onclose: 连接已关闭', event);
-      };
+        console.log('WebSocket onclose: 连接已关闭', event)
+      }
     },
     handleSchedule(row) {
-      this.scheduleDialogVisible = true;
-      this.currentSchedulingRow = row;
-      this.scheduleForm.testsuite_id = row.id;
-      this.scheduleForm.cron_expression = row.cron_expression || '';
+      this.scheduleDialogVisible = true
+      this.currentSchedulingRow = row
+      this.scheduleForm.testsuite_id = row.id
+      this.scheduleForm.cron_expression = row.cron_expression || ''
       this.$nextTick(() => {
-        this.$refs.scheduleForm.clearValidate();
-      });
+        this.$refs.scheduleForm.clearValidate()
+      })
     },
     submitSchedule() {
-      this.$refs.scheduleForm.validate(async (valid) => {
+      this.$refs.scheduleForm.validate(async(valid) => {
         if (valid) {
-          console.log('提交定时任务:', this.scheduleForm);
+          console.log('提交定时任务:', this.scheduleForm)
           try {
-            const response = await scheduleTestSuite(this.scheduleForm);
+            const response = await scheduleTestSuite(this.scheduleForm)
             if (response && response.code === '0') {
-              this.$message.success('定时任务已成功创建！');
-              this.scheduleDialogVisible = false;
+              this.$message.success('定时任务已成功创建！')
+              this.scheduleDialogVisible = false
               // 可以在这里刷新列表或更新UI以显示定时任务状态
             } else {
-              this.$message.error(response.message || '创建定时任务失败！');
+              this.$message.error(response.message || '创建定时任务失败！')
             }
           } catch (error) {
-            console.error('调用定时任务API失败:', error);
-            this.$message.error(error.response?.data?.message || '创建定时任务失败，请检查网络或后端服务');
+            console.error('调用定时任务API失败:', error)
+            this.$message.error(error.response?.data?.message || '创建定时任务失败，请检查网络或后端服务')
           }
         } else {
-          console.log('表单验证失败');
-          return false;
+          console.log('表单验证失败')
+          return false
         }
-      });
+      })
     },
     cancelSchedule() {
-      this.scheduleDialogVisible = false;
+      this.scheduleDialogVisible = false
     },
     async handleDelete(row) {
       try {
@@ -363,7 +403,7 @@ export default {
           cancelButtonText: '取消',
           type: 'warning'
         })
-        
+
         const response = await deleteTestSuite(row.id)
         if (response && response.code === '0') {
           this.$message.success('删除成功')
@@ -384,24 +424,24 @@ export default {
         if (allTestSuitesRes.code !== '0') {
           throw new Error(allTestSuitesRes.message || '获取测试任务列表失败')
         }
-        
-        const existingNames = Array.isArray(allTestSuitesRes.data) 
+
+        const existingNames = Array.isArray(allTestSuitesRes.data)
           ? allTestSuitesRes.data.map(item => item.name)
-          : []
-        
+          : (allTestSuitesRes.data.items || []).map(item => item.name)
+
         let newName = row.name
         let counter = 1
         while (existingNames.includes(newName + ` (${counter})`)) {
           counter++
         }
         newName = newName + ` (${counter})`
-        
+
         const copyData = {
           name: newName,
           description: row.description,
           testcases: row.testcases ? row.testcases.map(tc => tc.id) : []
         }
-        
+
         const response = await createTestSuite(copyData)
         if (response && response.code === '0') {
           this.$message.success('复制成功')
@@ -461,4 +501,4 @@ export default {
     margin-top: 10px;
   }
 }
-</style> 
+</style>

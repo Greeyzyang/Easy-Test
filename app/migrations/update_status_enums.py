@@ -1,5 +1,9 @@
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:root@localhost/test_platform"
 
 def update_status_enums():
@@ -22,15 +26,15 @@ def update_status_enums():
         """))
         
         session.commit()
-        print("成功更新所有状态枚举值为大写")
+        logger.info("成功更新所有状态枚举值为大写")
         
         # 验证更新
         result = session.execute(text("SELECT DISTINCT status FROM execution_details"))
-        print("当前状态值:", [r[0] for r in result])
+        logger.info(f"当前状态值: {[r[0] for r in result]}")
         
     except Exception as e:
         session.rollback()
-        print(f"更新状态枚举值时出错: {e}")
+        logger.error(f"更新状态枚举值时出错: {e}")
     finally:
         session.close()
 

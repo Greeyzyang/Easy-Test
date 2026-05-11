@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from .base_schemas import TestcaseStatus
 
@@ -23,6 +23,8 @@ class TestsuiteBase(BaseModel):
     updated_time: Optional[datetime] = None
     cron_expression: Optional[str] = None
     env_name: Optional[str] = None
+    headers: Optional[Dict[str, str]] = None
+    project_id: Optional[str] = None
 
 
 class TestsuiteCreate(TestsuiteBase):

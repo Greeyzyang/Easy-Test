@@ -79,7 +79,6 @@
             <el-radio-group v-model="form.request_type" size="small">
               <el-radio-button label="JSON">JSON</el-radio-button>
               <el-radio-button label="FORM">表单</el-radio-button>
-              <el-radio-button label="FILE">文件</el-radio-button>
             </el-radio-group>
             <div class="body-tools" v-if="form.request_type === 'JSON'">
               <el-button type="text" @click="formatJSON" icon="el-icon-magic-stick" size="small">格式化</el-button>
@@ -87,17 +86,32 @@
             </div>
           </div>
           
-          <div v-if="form.request_type === 'JSON'" class="json-editor">
-            <el-input
-              v-model="form.body"
-              type="textarea"
-              :rows="12"
-              placeholder="请输入JSON格式的请求体"
-              class="body-input"
-            />
+          <div v-if="form.request_type === 'JSON'" class="json-editor-wrapper">
+            <div class="json-editor-header">
+              <el-radio-group v-model="jsonViewMode" size="mini">
+                <el-radio-button label="example">示例代码</el-radio-button>
+                <el-radio-button label="schema">结构定义 (Schema)</el-radio-button>
+              </el-radio-group>
+            </div>
+            
+            <div v-if="jsonViewMode === 'example'" class="json-editor">
+              <el-input
+                v-model="form.body"
+                type="textarea"
+                :rows="12"
+                placeholder="请输入JSON格式的请求体"
+                class="body-input"
+              />
+            </div>
+            <div v-else class="schema-viewer">
+              <pre class="schema-content">{{ formattedSchema }}</pre>
+              <div v-if="!form.body_schema" class="schema-empty">
+                <i class="el-icon-info"></i> 暂无结构定义，可通过导入 Swagger 自动获取
+              </div>
+            </div>
           </div>
 
-          <div v-else-if="form.request_type === 'FORM'" class="form-editor">
+          <div v-else class="form-editor">
             <param-table
               :params="formParamsList"
               @add="addFormParam"
@@ -105,30 +119,6 @@
               title="表单参数"
               :show-type="true"
             />
-          </div>
-
-          <div v-else class="file-upload">
-            <el-upload
-              class="upload-demo"
-              action="#"
-              :auto-upload="false"
-              :on-change="handleFileChange"
-              :file-list="fileList"
-            >
-              <el-button size="small" type="primary">选择文件</el-button>
-              <div slot="tip" class="el-upload__tip">只能上传文件</div>
-            </el-upload>
-            
-            <div class="file-params-section">
-              <div class="section-title">附加参数</div>
-              <param-table
-                :params="fileParamsList"
-                @add="addFileParam"
-                @remove="removeFileParam"
-                title="文件参数"
-                :show-type="true"
-              />
-            </div>
           </div>
         </div>
       </el-tab-pane>
@@ -150,7 +140,7 @@
 
 <script>
 import { getModuleList } from '@/api/module'
-import ParamTable from './ParamTable.vue'
+import ParamTable from '@/components/Common/ParamTable'
 
 export default {
   name: 'InterfaceForm',
@@ -167,26 +157,64 @@ export default {
     initialData: {
       handler(val) {
         if (val && Object.keys(val).length > 0) {
+          console.log('[DEBUG] InterfaceForm received initialData:', val)
+          
           // 处理版本号，移除可能存在的 'v' 前缀
           const version = val.version ? val.version.replace(/^v/i, '') : '1'
           
-          this.form = {
-            name: val.name || '',
-            url: val.url || '',
-            method: val.method || 'GET',
-            moduleId: val.module_id || '',
-            version: version,
-            request_type: val.request_type || 'JSON',
-            description: val.description || '',
-            headers: val.headers || {},
-            params: val.params || {},
-            body: typeof val.body === 'object' ? JSON.stringify(val.body, null, 2) : val.body || ''
+          // 基础表单数据
+          let request_type = val.request_type || 'JSON'
+          let body_str = ''
+          
+          if (typeof val.body === 'object' && val.body !== null) {
+            body_str = JSON.stringify(val.body, null, 2)
+          } else {
+            body_str = val.body || ''
+          }
+          
+          // 自动识别增强：无论后端返回什么类型，只要 body 中包含文件相关字段，就强制识别为 FORM
+          if (body_str) {
+            const bodyLower = body_str.toLowerCase()
+            // 更加灵活的检测方式：检查键名中是否包含 file, files, attachment, image 等关键字
+            const fileKeywords = ['"file"', '"files"', '"attachment"', '"image"', 'file":', 'files":', 'attachment":', 'image":']
+            const hasFileField = fileKeywords.some(keyword => bodyLower.includes(keyword))
+            
+            if (hasFileField) {
+              request_type = 'FORM'
+              console.log('[DEBUG] Force detected file fields via string check, setting request_type to FORM. Body contains keywords.')
+            }
+          }
+
+          // 强制更新表单对象，确保响应式
+          // 先设置基础属性
+          this.$set(this.form, 'id', val.id)
+          this.$set(this.form, 'name', val.name || '')
+          this.$set(this.form, 'url', val.url || '')
+          this.$set(this.form, 'method', val.method || 'GET')
+          this.$set(this.form, 'moduleId', val.module_id || '')
+          this.$set(this.form, 'version', version)
+          this.$set(this.form, 'request_type', request_type)
+          this.$set(this.form, 'description', val.description || '')
+          this.$set(this.form, 'headers', val.headers || {})
+          this.$set(this.form, 'params', val.params || {})
+          this.$set(this.form, 'body', body_str)
+          this.$set(this.form, 'body_schema', val.body_schema || null)
+          
+          console.log('[DEBUG] Final form request_type:', this.form.request_type)
+          
+          // 如果强制识别为 FORM，确保 activeTab 切换到 body，以便用户看到表单参数
+          if (request_type === 'FORM') {
+            this.$nextTick(() => {
+              this.activeTab = 'body'
+              console.log('[DEBUG] Switched activeTab to body')
+            })
           }
           
           // 转换headers为列表形式
           this.headersList = Object.entries(val.headers || {}).map(([key, value]) => ({
             name: key,
-            value: value,
+            value: typeof value === 'object' ? JSON.stringify(value) : value,
+            type: 'string',
             required: true,
             description: ''
           }))
@@ -194,19 +222,42 @@ export default {
           // 转换params为列表形式
           this.paramsList = Object.entries(val.params || {}).map(([key, value]) => ({
             name: key,
-            value: value,
+            value: typeof value === 'object' ? JSON.stringify(value) : value,
+            type: 'string',
             required: true,
             description: ''
           }))
           
           // 如果是FORM类型，转换body为列表形式
-          if (val.request_type === 'FORM' && val.body) {
-            this.formParamsList = Object.entries(val.body).map(([key, value]) => ({
-              name: key,
-              value: value,
-              required: true,
-              description: ''
-            }))
+          if (request_type === 'FORM' && val.body) {
+            const bodyObj = typeof val.body === 'string' ? JSON.parse(val.body) : val.body
+            if (Array.isArray(bodyObj)) {
+              this.formParamsList = bodyObj.map(item => ({
+                name: item.name || '',
+                value: item.value !== undefined ? (typeof item.value === 'object' ? JSON.stringify(item.value) : item.value) : '',
+                type: item.type || 'string',
+                required: item.required || false,
+                description: item.description || ''
+              }))
+            } else if (bodyObj && typeof bodyObj === 'object') {
+              // 兼容字典格式
+              this.formParamsList = Object.entries(bodyObj).map(([key, value]) => {
+                let type = 'string'
+                if (typeof value === 'number') type = 'number'
+                if (typeof value === 'boolean') type = 'boolean'
+                if (key.toLowerCase().includes('file')) {
+                  type = 'file'
+                }
+                
+                return {
+                  name: key,
+                  value: typeof value === 'object' ? JSON.stringify(value) : value,
+                  type: type,
+                  required: true,
+                  description: ''
+                }
+              })
+            }
           }
         }
       },
@@ -229,13 +280,12 @@ export default {
 
     return {
       activeTab: 'headers',
+      jsonViewMode: 'example',
       methodOptions: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
       moduleOptions: [],
       paramsList: [],
       headersList: [],
       formParamsList: [],
-      fileParamsList: [],
-      fileList: [],
       form: {
         name: '',
         url: '',
@@ -246,6 +296,7 @@ export default {
         headers: '',
         params: '',
         body: '',
+        body_schema: null,
         description: ''
       },
       rules: {
@@ -274,12 +325,19 @@ export default {
   created() {
     this.getModules()
   },
+  computed: {
+    formattedSchema() {
+      if (!this.form.body_schema) return ''
+      return JSON.stringify(this.form.body_schema, null, 2)
+    }
+  },
   methods: {
     async getModules() {
       try {
         const response = await getModuleList()
         if (response.code === '0' && response.data) {
-          this.moduleOptions = (response.data || []).map(module => ({
+          const items = response.data.items || response.data
+          this.moduleOptions = (items || []).map(module => ({
             id: module.id,
             name: module.name
           }))
@@ -325,6 +383,8 @@ export default {
 
       // 处理body
       let body = {}
+      let request_type = this.form.request_type
+
       if (this.form.request_type === 'JSON') {
         try {
           body = this.form.body ? JSON.parse(this.form.body) : {}
@@ -332,20 +392,19 @@ export default {
           console.warn('JSON parse failed:', e)
           body = {}
         }
-      } else if (this.form.request_type === 'FORM') {
-        body = this.formParamsList.reduce((acc, item) => {
-          if (item.name) {
-            acc[item.name] = this.convertParamValue(item)
-          }
-          return acc
-        }, {})
-      } else if (this.form.request_type === 'FILE') {
-        body = this.fileParamsList.reduce((acc, item) => {
-          if (item.name) {
-            acc[item.name] = this.convertParamValue(item)
-          }
-          return acc
-        }, {})
+      } else {
+        // FORM 类型处理 - 直接保存原始列表以保留类型信息
+        body = this.formParamsList.filter(item => item.name).map(item => ({
+          name: item.name,
+          value: this.convertParamValue(item),
+          type: item.type || 'string',
+          required: item.required || false,
+          description: item.description || ''
+        }))
+        // 检查是否有文件类型
+        // if (this.formParamsList.some(item => item.type === 'file')) {
+        //   request_type = 'FORM' // 统一使用 FORM
+        // }
       }
 
       return {
@@ -355,10 +414,11 @@ export default {
         module_id: this.form.moduleId,
         version: this.form.version.replace(/^v/i, ''),
         description: this.form.description,
-        request_type: this.form.request_type,
+        request_type: request_type,
         headers,
         params,
-        body
+        body,
+        body_schema: this.form.body_schema
       }
     },
     convertParamValue(param) {
@@ -417,28 +477,11 @@ export default {
     clearBody() {
       this.form.body = ''
     },
-    handleFileChange(file, fileList) {
-      this.fileList = fileList
-    },
-    addFileParam() {
-      this.fileParamsList.push({
-        name: '',
-        value: '',
-        type: 'string',
-        required: false,
-        description: ''
-      })
-    },
-    removeFileParam(index) {
-      this.fileParamsList.splice(index, 1)
-    },
     reset() {
       this.$refs.form.resetFields()
       this.paramsList = []
       this.headersList = []
       this.formParamsList = []
-      this.fileParamsList = []
-      this.fileList = []
     },
     formatData() {
       return {
@@ -494,6 +537,33 @@ export default {
   gap: 10px;
 }
 
+.json-editor-header {
+  margin-bottom: 10px;
+}
+
+.schema-viewer {
+  background: #f5f7fa;
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid #DCDFE6;
+  max-height: 400px;
+  overflow: auto;
+}
+
+.schema-content {
+  margin: 0;
+  font-family: monospace;
+  font-size: 12px;
+  color: #606266;
+}
+
+.schema-empty {
+  text-align: center;
+  color: #909399;
+  padding: 20px;
+  font-size: 13px;
+}
+
 .json-editor {
   border: 1px solid #DCDFE6;
   border-radius: 4px;
@@ -506,25 +576,6 @@ export default {
 .body-input :deep(.el-textarea__inner) {
   padding: 10px;
   font-family: monospace;
-}
-
-.file-upload {
-  padding: 20px;
-  border: 1px dashed #DCDFE6;
-  border-radius: 4px;
-}
-
-.file-params-section {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid #EBEEF5;
-}
-
-.section-title {
-  font-size: 14px;
-  color: #606266;
-  margin-bottom: 15px;
-  font-weight: 500;
 }
 
 /* 请求方法颜色 */

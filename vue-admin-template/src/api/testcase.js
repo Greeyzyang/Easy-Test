@@ -1,7 +1,13 @@
 import request from '@/utils/request'
 
 // 测试用例相关接口
-export function getTestCases(params) {
+export function getTestCases(listQueryParams) {
+  const params = {
+    skip: Math.max((listQueryParams.page - 1) * listQueryParams.limit, 0),
+    limit: listQueryParams.limit,
+    name: listQueryParams.name,
+    module_id: listQueryParams.module_id
+  }
   return request({
     url: '/rest/v1/testcases/',
     method: 'get',
@@ -21,6 +27,46 @@ export function createTestCase(data) {
     url: '/rest/v1/testcases/',
     method: 'post',
     data
+  })
+}
+
+// AI 生成相关接口
+export function startAiGenerationTask(data) {
+  return request({
+    url: '/rest/v1/testcases/ai-generate/',
+    method: 'post',
+    data
+  })
+}
+
+export function startInterfaceAiGenerationTask(data) {
+  return request({
+    url: '/rest/v1/testcases/interface/ai-generate/',
+    method: 'post',
+    data
+  })
+}
+
+export function saveGeneratedTestcases(data) {
+  return request({
+    url: '/rest/v1/testcases/save-generated/',
+    method: 'post',
+    data
+  })
+}
+
+export function getAiTaskStatus(taskId) {
+  return request({
+    url: `/rest/v1/testcases/ai-task/${taskId}/`,
+    method: 'get'
+  })
+}
+
+export function downloadAiTestcasesXlsx(taskId) {
+  return request({
+    url: `/rest/v1/testcases/ai-export/${taskId}/`,
+    method: 'get',
+    responseType: 'blob'
   })
 }
 

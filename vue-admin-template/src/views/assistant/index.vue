@@ -25,9 +25,9 @@
           </el-input>
         </el-form-item>
         
-        <el-form-item label="历史需求 Jira Keys">
+        <el-form-item label="关联需求 Jira Keys">
           <el-input 
-            v-model="form.history_keys_str" 
+            v-model="form.linked_req_keys_str" 
             placeholder="多个Key用英文逗号隔开, 例如: PROJ-100,PROJ-101" 
             clearable
             type="textarea"
@@ -38,7 +38,7 @@
             </template>
           </el-input>
           <div class="form-tip">
-            <i class="el-icon-info"></i> 历史需求将提供额外上下文，帮助生成更全面的测试用例
+            <i class="el-icon-info"></i> 关联需求将提供额外上下文，帮助生成更全面的测试用例
           </div>
         </el-form-item>
         
@@ -142,6 +142,44 @@
             </el-card>
           </el-col>
         </el-row>
+
+        <el-row v-if="analysisHighlights.length > 0" :gutter="20" style="margin-top: 20px;">
+          <el-col :span="24">
+            <el-card shadow="hover" class="analysis-card">
+              <div slot="header" class="analysis-header">
+                <span>需求分析要点</span>
+                <el-tag size="mini" type="success">{{ analysisHighlights.length }} 条</el-tag>
+              </div>
+              <div class="analysis-list">
+                <div v-for="(item, idx) in analysisHighlights" :key="idx" class="analysis-item">
+                  <div class="analysis-index">{{ idx + 1 }}</div>
+                  <div class="analysis-text">{{ item }}</div>
+                </div>
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <el-row v-if="knowledgeSummaryCard" :gutter="20" style="margin-top: 20px;">
+          <el-col :span="24">
+            <el-card shadow="hover" class="knowledge-card">
+              <div slot="header" class="analysis-header">
+                <span>知识库参与情况</span>
+                <el-tag size="mini" :type="knowledgeSummaryCard.used ? 'success' : 'info'">
+                  {{ knowledgeSummaryCard.used ? '已启用' : '未命中' }}
+                </el-tag>
+              </div>
+              <div class="rag-progress-row"><strong>状态：</strong>{{ knowledgeSummaryCard.status }}</div>
+              <div v-if="knowledgeSummaryCard.query" class="rag-progress-row"><strong>检索词：</strong>{{ knowledgeSummaryCard.query }}</div>
+              <div v-if="knowledgeSummaryCard.sources.length" class="rag-progress-sources">
+                <div class="rag-progress-row"><strong>参考文档：</strong></div>
+                <ul>
+                  <li v-for="(source, index) in knowledgeSummaryCard.sources" :key="index">{{ source }}</li>
+                </ul>
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
         
         <!-- 新增：质量问题提示与覆盖度建议 -->
         <el-row :gutter="20" style="margin-top: 20px;">
@@ -178,25 +216,39 @@
       </div>
       
       <!-- 加载状态 -->
-      <div v-if="loading" class="loading-status">
-        <el-steps :active="activeStep" align-center finish-status="success" class="progress-steps">
-          <el-step title="获取Jira"/>
-          <el-step title="分析历史"/>
-          <el-step title="调用模型"/>
-          <el-step title="生成用例"/>
-          <el-step title="完成"/>
-        </el-steps>
-        <el-progress 
-          :percentage="loadingProgress" 
-          :stroke-width="8"
-          :show-text="false"
-          color="#409EFF"
-        ></el-progress>
+        <div v-if="loading" class="loading-status">
+         <el-steps :active="activeStep" align-center finish-status="success" class="progress-steps">
+           <el-step title="获取Jira"/>
+           <el-step title="检索文档"/>
+           <el-step title="生成上下文"/>
+           <el-step title="生成用例"/>
+           <el-step title="完成"/>
+         </el-steps>
+         <el-progress 
+           :percentage="loadingProgress" 
+           :stroke-width="8"
+           :show-text="false"
+           color="#409EFF"
+         ></el-progress>
       <div class="loading-text">
         <i class="el-icon-loading"></i>
         <span>{{ taskStatus }}</span>
       </div>
+      <div v-if="ragProgressCard" class="rag-progress-card">
+        <div class="rag-progress-header">
+          <i class="el-icon-document"></i>
+          <span>产品文档检索过程</span>
+        </div>
+        <div class="rag-progress-row"><strong>状态：</strong>{{ ragProgressCard.status }}</div>
+        <div v-if="ragProgressCard.query" class="rag-progress-row"><strong>检索词：</strong>{{ ragProgressCard.query }}</div>
+        <div v-if="ragProgressCard.sources.length" class="rag-progress-sources">
+          <div class="rag-progress-row"><strong>命中文档：</strong></div>
+          <ul>
+            <li v-for="(source, index) in ragProgressCard.sources" :key="index">{{ source }}</li>
+          </ul>
+        </div>
       </div>
+       </div>
       
       <!-- 测试用例列表 -->
       <div v-if="!loading && generatedTestcases.length > 0" class="testcases-container">
@@ -258,6 +310,7 @@
                 </el-col>
               </el-row>
               
+              <!-- 详细内容已隐藏
               <div v-if="testcase.precondition" class="precondition-section">
                 <h4><i class="el-icon-setting"></i> 前置条件</h4>
                 <div class="precondition-content">{{ testcase.precondition }}</div>
@@ -281,6 +334,7 @@
                 <h4><i class="el-icon-check"></i> 预期结果</h4>
                 <div class="expected-content">{{ testcase.expected_result }}</div>
               </div>
+              -->
             </div>
           </el-collapse-item>
         </el-collapse>
@@ -305,7 +359,7 @@
 </template>
 
 <script>
-import { startGenerationTask, getTaskStatus, downloadTestcasesXlsx } from '@/api/assistant'
+import { startAiGenerationTask, getAiTaskStatus, downloadAiTestcasesXlsx } from '@/api/testcase'
 
 export default {
   name: 'AIAssistant',
@@ -315,7 +369,7 @@ export default {
       loadingProgress: 0,
       form: {
         jira_key: '',
-        history_keys_str: ''
+        linked_req_keys_str: ''
       },
       rules: {
         jira_key: [
@@ -327,6 +381,18 @@ export default {
       pollInterval: null, // 轮询定时器
       ws: null, // WebSocket 连接实例
       generatedTestcases: [],
+      analysisHighlights: [],
+      ragProgress: {
+        status: '',
+        query: '',
+        sources: []
+      },
+      knowledgeSummary: {
+        status: '',
+        query: '',
+        sources: [],
+        used: false
+      },
       error: '',
       showStatistics: false,
       activeNames: [0], // 默认展开第一个测试用例
@@ -444,10 +510,24 @@ export default {
     activeStep() {
       const p = Number(this.loadingProgress || 0)
       if (p >= 100) return 4
-      if (p >= 75) return 3
-      if (p >= 50) return 2
-      if (p >= 25) return 1
+      if (p >= 70) return 3
+      if (p >= 45) return 2
+      if (p >= 20) return 1
       return 0
+    },
+    ragProgressCard() {
+      if (!this.loading && !this.ragProgress.status) return null
+      if (!this.ragProgress.status && !this.ragProgress.query && this.ragProgress.sources.length === 0) return null
+      return {
+        status: this.ragProgress.status || '等待检索结果...',
+        query: this.ragProgress.query,
+        sources: this.ragProgress.sources
+      }
+    },
+    knowledgeSummaryCard() {
+      const summary = this.knowledgeSummary || {}
+      if (!summary.status && !summary.query && (!summary.sources || summary.sources.length === 0)) return null
+      return summary
     }
   },
   beforeDestroy() {
@@ -471,18 +551,21 @@ export default {
       this.loadingProgress = 0
       this.taskStatus = '正在启动任务...'
       this.generatedTestcases = []
+      this.analysisHighlights = []
+      this.ragProgress = { status: '', query: '', sources: [] }
+      this.knowledgeSummary = { status: '', query: '', sources: [], used: false }
       this.error = ''
       this.taskId = null
       this.showStatistics = false
 
       try {
-        // 解析历史需求Keys
-        const history_keys = this.form.history_keys_str.split(',').map(key => key.trim()).filter(key => key)
+        // 解析关联需求Keys
+        const linked_req_keys = this.form.linked_req_keys_str.split(',').map(key => key.trim()).filter(key => key)
         
         // 先启动任务
-        const response = await startGenerationTask({
+        const response = await startAiGenerationTask({
           jira_key: this.form.jira_key,
-          history_keys: history_keys
+          linked_req_keys: linked_req_keys
         })
         
         if (response && response.code === '0') {
@@ -504,6 +587,9 @@ export default {
     resetForm() {
       this.$refs.form.resetFields()
       this.generatedTestcases = []
+      this.analysisHighlights = []
+      this.ragProgress = { status: '', query: '', sources: [] }
+      this.knowledgeSummary = { status: '', query: '', sources: [], used: false }
       this.error = ''
       this.taskStatus = ''
       this.showStatistics = false
@@ -526,7 +612,23 @@ export default {
       }
       try {
         this.$message.info('正在生成Excel文件...')
-        const res = await downloadTestcasesXlsx(this.taskId)
+        const res = await downloadAiTestcasesXlsx(this.taskId)
+        
+        // Check if response is JSON error (blob containing json)
+        if (res.type === 'application/json') {
+           const reader = new FileReader()
+           reader.onload = () => {
+             try {
+                const errorData = JSON.parse(reader.result)
+                this.$message.error(errorData.message || errorData.detail || '下载失败')
+             } catch (e) {
+                this.$message.error('下载文件格式错误')
+             }
+           }
+           reader.readAsText(res)
+           return
+        }
+
         const blob = new Blob([res], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
         const url = window.URL.createObjectURL(blob)
         const link = document.createElement('a')
@@ -538,6 +640,7 @@ export default {
         window.URL.revokeObjectURL(url)
         this.$message.success('Excel文件下载成功！')
       } catch (err) {
+        console.error('Export error:', err)
         this.$message.error('下载失败，请稍后重试');
       }
     },
@@ -550,7 +653,7 @@ export default {
       // 启动新的轮询
       this.pollInterval = setInterval(async () => {
         try {
-          const res = await getTaskStatus(this.taskId)
+          const res = await getAiTaskStatus(this.taskId)
           const task = res.data
           
           // 根据任务状态更新UI
@@ -587,6 +690,9 @@ export default {
       
       if (task.result && task.result.result && task.result.result.testcases) {
         this.generatedTestcases = task.result.result.testcases
+        this.analysisHighlights = Array.isArray(task.result.result.analysis) ? task.result.result.analysis : []
+        this.syncRagProgress(task.result.result)
+        this.syncKnowledgeSummary(task.result.result)
         this.showStatistics = true
         this.$message.success(`成功生成 ${this.generatedTestcases.length} 个测试用例！`)
       } else {
@@ -607,20 +713,75 @@ export default {
     handleTaskProgress(task) {
       // 更新进度
       if (task.result && task.result.status === 'PROGRESS') {
-        this.taskStatus = task.result.message || '处理中...'
+        this.taskStatus = task.result.message || task.result.statusText || task.result.status_label || '处理中...'
         this.loadingProgress = task.result.progress || this.loadingProgress
+        this.syncRagProgress(task.result)
         
         // 根据消息内容更新进度条
-        if (this.taskStatus.includes('获取Jira信息')) {
+        if (this.taskStatus.includes('获取 Jira') || this.taskStatus.includes('获取Jira')) {
           this.loadingProgress = Math.max(this.loadingProgress, 20)
+        } else if (this.taskStatus.includes('检索产品文档') || this.taskStatus.includes('知识库')) {
+          this.loadingProgress = Math.max(this.loadingProgress, 45)
+        } else if (this.taskStatus.includes('解析生成结果') || this.taskStatus.includes('生成上下文')) {
+          this.loadingProgress = Math.max(this.loadingProgress, 65)
         } else if (this.taskStatus.includes('生成测试用例')) {
-          this.loadingProgress = Math.max(this.loadingProgress, 60)
+          this.loadingProgress = Math.max(this.loadingProgress, 80)
         } else if (this.taskStatus.includes('调用大模型')) {
           this.loadingProgress = Math.max(this.loadingProgress, 70)
         } else {
           this.loadingProgress = Math.min(this.loadingProgress + 5, 90)
         }
       }
+    },
+    syncRagProgress(payload) {
+      if (!payload || typeof payload !== 'object') return
+      const next = { ...this.ragProgress }
+      if (typeof payload.kb_query === 'string' && payload.kb_query) next.query = payload.kb_query
+      if (Array.isArray(payload.kb_source_labels) && payload.kb_source_labels.length) {
+        next.sources = payload.kb_source_labels
+      } else if (Array.isArray(payload.kb_sources) && payload.kb_sources.length) {
+        next.sources = payload.kb_sources.map(item => {
+          if (!item || typeof item !== 'object') return String(item)
+          const source = item.source || 'Unknown'
+          return item.page !== undefined && item.page !== null ? `${source} (Page ${item.page})` : source
+        })
+      } else if (payload.rag_summary && typeof payload.rag_summary === 'object') {
+        const summary = payload.rag_summary
+        if (typeof summary.query === 'string' && summary.query) next.query = summary.query
+        if (Array.isArray(summary.sources) && summary.sources.length) {
+          next.sources = summary.sources.map(item => {
+            if (!item || typeof item !== 'object') return String(item)
+            const source = item.source || 'Unknown'
+            return item.page !== undefined && item.page !== null ? `${source} (Page ${item.page})` : source
+          })
+        }
+        if (typeof summary.status === 'string' && summary.status) next.status = summary.status
+      }
+
+      if (typeof payload.text === 'string' && (payload.text.includes('检索产品文档') || payload.text.includes('知识库'))) {
+        next.status = payload.text
+      }
+      if (payload.kb_used === false && !next.status) next.status = '知识库未命中相关业务规则'
+      if (payload.kb_used === true && !next.status) next.status = '已命中相关产品文档'
+      this.ragProgress = next
+    },
+    syncKnowledgeSummary(payload) {
+      if (!payload || typeof payload !== 'object') return
+      const next = { ...this.knowledgeSummary }
+      if (typeof payload.kb_used === 'boolean') next.used = payload.kb_used
+      if (payload.rag_summary && typeof payload.rag_summary === 'object') {
+        const summary = payload.rag_summary
+        if (typeof summary.status === 'string' && summary.status) next.status = summary.status
+        if (typeof summary.query === 'string' && summary.query) next.query = summary.query
+        if (Array.isArray(summary.sources)) {
+          next.sources = summary.sources.map(item => {
+            if (!item || typeof item !== 'object') return String(item)
+            const source = item.source || 'Unknown'
+            return item.page !== undefined && item.page !== null ? `${source} (Page ${item.page})` : source
+          })
+        }
+      }
+      this.knowledgeSummary = next
     },
     // 还原：标签类型映射（用于优先级与类型Tag渲染）
     getPriorityTagType(priority) {
@@ -663,7 +824,7 @@ export default {
       // 根据环境变量构建 WebSocket URL
       const baseApi = process.env.VUE_APP_BASE_API || ''
       const wsHost = baseApi.startsWith('https') ? baseApi.replace('https', 'wss') : baseApi.replace('http', 'ws')
-      const wsUrl = `${wsHost}/rest/v1/ai/ws/progress/${this.taskId}`
+      const wsUrl = `${wsHost}/rest/v1/testcases/ws/progress/${this.taskId}`
       try {
         this.ws = new WebSocket(wsUrl)
       } catch (e) {
@@ -689,13 +850,16 @@ export default {
           }
         if (status === 'PROGRESS') {
           this.loadingProgress = Number(msg.progress || 0)
-          this.taskStatus = msg.text || '处理中...'
+          this.taskStatus = msg.message || msg.text || '处理中...'
+          this.syncKnowledgeSummary(msg)
         } else if (status === 'SUCCESS') {
           this.loadingProgress = Number(msg.progress || 100)
-          this.taskStatus = msg.text || '任务完成'
+          this.taskStatus = msg.message || msg.text || '任务完成'
           if (msg.result && Array.isArray(msg.result.testcases)) {
             this.generatedTestcases = msg.result.testcases
+            this.analysisHighlights = Array.isArray(msg.result.analysis) ? msg.result.analysis : []
             this.showStatistics = true
+            this.syncKnowledgeSummary(msg.result)
           }
           this.loading = false
             // 关闭 WS
@@ -704,7 +868,7 @@ export default {
         } else if (status === 'FAILURE') {
           this.loadingProgress = Number(msg.progress || 100)
           this.taskStatus = '任务失败'
-          this.error = msg.text || '生成失败'
+          this.error = msg.message || msg.text || '生成失败'
           this.loading = false
           try { this.ws && this.ws.close() } catch (e) {}
           this.ws = null
@@ -800,6 +964,37 @@ export default {
   margin-top: 10px;
   font-size: 14px;
   color: #606266;
+}
+
+.rag-progress-card {
+  margin-top: 14px;
+  text-align: left;
+  background: #f7fbff;
+  border: 1px solid #d9ecff;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.rag-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #1f2d3d;
+  margin-bottom: 8px;
+}
+
+.rag-progress-row {
+  font-size: 13px;
+  color: #4a5568;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.rag-progress-sources ul {
+  margin: 6px 0 0 18px;
+  padding: 0;
+  color: #4a5568;
 }
 
 .loading-text .el-icon-loading {
@@ -963,6 +1158,45 @@ export default {
   margin-top: 20px;
 }
 .quality-card, .coverage-card { min-height: 160px; }
+.analysis-card {
+  background: linear-gradient(180deg, #fbfdff 0%, #f3f8ff 100%);
+  border: 1px solid #dbe8ff;
+}
+.analysis-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.analysis-list {
+  display: grid;
+  gap: 12px;
+}
+.analysis-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e3ecfb;
+  border-radius: 10px;
+}
+.analysis-index {
+  width: 24px;
+  height: 24px;
+  line-height: 24px;
+  text-align: center;
+  border-radius: 50%;
+  background: #409EFF;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.analysis-text {
+  color: #334155;
+  line-height: 1.7;
+  font-size: 13px;
+}
 .quality-alert { margin-bottom: 8px; }
 .quality-empty, .coverage-empty { color: #909399; padding: 8px 0; }
 .coverage-list { list-style: none; padding: 0; margin: 0; }

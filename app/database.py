@@ -6,15 +6,15 @@ from fastapi import Depends, Request, HTTPException
 from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from app.models.user import User
 from app.models.base_model import Base
-import logging
+from app.utils.logger import get_logger
 import json
 from passlib.context import CryptContext
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
+import asyncio
 
 # 设置日志
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # 创建密码哈希工具
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
@@ -91,22 +91,21 @@ class CustomSQLAlchemyUserDatabase(SQLAlchemyUserDatabase):
                 logger.error("创建用户时缺少哈希密码")
                 raise HTTPException(status_code=400, detail="密码不能为空")
             
-            # 记录最终的创建字典
             logger.debug(f"最终的用户创建数据: {create_dict_copy}")
-            
             try:
-                # 创建用户对象
                 user = self.user_table(**create_dict_copy)
                 self.session.add(user)
-                
-                # 提交到数据库
-                await self.session.commit()
-                await self.session.refresh(user)
-                
-                logger.info(f"成功创建用户: {user.email}, ID: {user.id}")
+                await asyncio.wait_for(self.session.flush(), timeout=8)
+                await asyncio.wait_for(self.session.commit(), timeout=8)
+                await asyncio.wait_for(self.session.refresh(user), timeout=8)
+                logger.info(f"成功创建用户(异步): {user.email}, ID: {user.id}")
                 return user
+            except asyncio.TimeoutError:
+                logger.error("数据库提交或刷新超时")
+                await self.session.rollback()
+                raise HTTPException(status_code=504, detail="数据库操作超时")
             except Exception as e:
-                logger.exception(f"数据库操作出错: {str(e)}")
+                logger.exception(f"数据库操作出错(异步路径): {str(e)}")
                 await self.session.rollback()
                 raise HTTPException(status_code=500, detail=f"数据库错误: {str(e)}")
         except Exception as e:
@@ -142,8 +141,7 @@ async_session_maker = async_sessionmaker(
 # 生成同步数据库URL，替换 aiomysql -> pymysql（用于 Celery/Beat 同步引擎）
 SYNC_DATABASE_URL = DATABASE_URL.replace("+aiomysql", "+pymysql") if "+aiomysql" in DATABASE_URL else DATABASE_URL
 
-# 为 sqlite 场景设置 connect_args，否则使用空字典，避免向非 sqlite 驱动传入 check_same_thread
-_sync_connect_args = {"check_same_thread": False} if (SYNC_DATABASE_URL.startswith("sqlite") or "sqlite" in SYNC_DATABASE_URL) else {}
+_sync_connect_args = {"connect_timeout": 10}
 
 sync_engine = create_engine(
     SYNC_DATABASE_URL,
@@ -152,6 +150,7 @@ sync_engine = create_engine(
     echo=True,
     pool_size=5,
     max_overflow=10,
+    pool_timeout=30,
     connect_args=_sync_connect_args
 )
 

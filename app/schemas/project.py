@@ -7,6 +7,8 @@ class ProjectBase(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     creator: Optional[str] = None
+    headers: Optional[dict] = {}
+    variables: Optional[dict] = {}
     created_time: Optional[datetime] = None
     updated_time: Optional[datetime] = None
 

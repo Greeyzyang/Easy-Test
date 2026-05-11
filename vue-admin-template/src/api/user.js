@@ -25,6 +25,23 @@ export function register(data) {
   })
 }
 
+// 请求发送邮箱验证链接
+export function requestVerifyToken(email) {
+  return request({
+    url: '/auth/request-verify-token',
+    method: 'post',
+    data: { email }
+  })
+}
+
+// 验证邮箱
+export function verifyEmail(token) {
+  return request({
+    url: `/auth/verify?token=${encodeURIComponent(token)}`,
+    method: 'post'
+  })
+}
+
 // 获取用户信息
 export function getInfo() {
   return request({

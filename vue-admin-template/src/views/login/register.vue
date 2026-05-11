@@ -52,7 +52,7 @@
 </template>
 
 <script>
-import { register } from '@/api/user'
+import { register, requestVerifyToken } from '@/api/user'
 import { validateEmail } from '@/utils/validate'
 
 export default {
@@ -100,17 +100,37 @@ export default {
       this.$refs.registerForm.validate(valid => {
         if (valid) {
           this.loading = true
-          register(this.registerForm).then(() => {
-            this.$message({
-              message: '注册成功，请登录',
-              type: 'success',
-              duration: 2000
+          register(this.registerForm)
+            .then(() => {
+              // 注册成功后尝试发送验证邮件（失败则仅提示，不影响整体流程）
+              return requestVerifyToken(this.registerForm.email)
+                .then(() => {
+                  this.$message({
+                    message: '注册成功，验证邮件已发送，请前往邮箱完成验证',
+                    type: 'success',
+                    duration: 3000
+                  })
+                })
+                .catch(() => {
+                  this.$message({
+                    message: '注册成功，但发送验证邮件失败，请稍后在登录页重试',
+                    type: 'warning',
+                    duration: 3000
+                  })
+                })
             })
-            this.$router.push('/login')
-            this.loading = false
-          }).catch(() => {
-            this.loading = false
-          })
+            .then(() => {
+              this.$router.push('/login')
+              this.loading = false
+            })
+            .catch((err) => {
+              this.$message({
+                message: (err && err.message) ? `注册失败：${err.message}` : '注册失败，请稍后重试',
+                type: 'error',
+                duration: 3000
+              })
+              this.loading = false
+            })
         } else {
           return false
         }

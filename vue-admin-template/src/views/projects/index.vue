@@ -26,9 +26,9 @@
           <span class="link-type" @click="handleUpdate(scope.row)">{{ scope.row.name }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="描述" show-overflow-tooltip>
+      <el-table-column label="描述" min-width="200">
         <template slot-scope="scope">
-          <span>{{ scope.row.description || '-' }}</span>
+          <EllipsisCell :value="scope.row.description || '-'" :detect-json="false" />
         </template>
       </el-table-column>
       <el-table-column label="创建时间" width="160" align="center">
@@ -69,11 +69,12 @@
 <script>
 import { getProjectList, deleteProject, createProject } from '@/api/project'
 import { formatDateTime } from '@/utils/format'
-import Pagination from '@/components/Pagination'
+import Pagination from '@/components/Layout/Pagination'
+import EllipsisCell from '@/components/Common/EllipsisCell'
 
 export default {
   name: 'ProjectList',
-  components: { Pagination },
+  components: { Pagination, EllipsisCell },
   data() {
     return {
       list: [],
@@ -92,22 +93,18 @@ export default {
     async getList() {
       this.listLoading = true
       try {
-        const skip = Math.max((this.listQuery.page - 1) * this.listQuery.limit, 0)
-        const params = {
-          skip,
-          limit: this.listQuery.limit
-        }
-
-        const response = await getProjectList(params)
-        if (response && response.code === '0' && Array.isArray(response.data)) {
-          this.list = response.data.map(item => ({
+        const response = await getProjectList(this.listQuery)
+        // 后端返回 { code: '0', data: { items: [...], total: 100 } }
+        if (response && response.code === '0' && response.data) {
+          const { items, total } = response.data
+          this.list = (items || []).map(item => ({
             id: item.id,
             name: item.name,
             description: item.description,
             created_time: item.created_time,
             updated_time: item.updated_time
           }))
-          this.total = response.data.length
+          this.total = total || 0
         } else {
           this.$message.error('获取项目列表失败：数据格式错误')
         }
@@ -120,10 +117,10 @@ export default {
       }
     },
     handleCreate() {
-      this.$router.push('/projects/create')
+      this.$router.push('/design/projects/create')
     },
     handleUpdate(row) {
-      this.$router.push(`/projects/edit/${row.id}`)
+      this.$router.push(`/design/projects/edit/${row.id}`)
     },
     async handleDelete(row) {
       try {
@@ -154,14 +151,14 @@ export default {
         const allProjectsResponse = await getProjectList({ limit: 1000 })
         if (allProjectsResponse && allProjectsResponse.code === '0' && Array.isArray(allProjectsResponse.data)) {
           const existingNames = allProjectsResponse.data.map(item => item.name)
-          
+
           let newName = row.name
           let counter = 1
           while (existingNames.includes(newName + ` (${counter})`)) {
             counter++
           }
           newName = newName + ` (${counter})`
-          
+
           const copyData = {
             ...row,
             name: newName,
@@ -169,7 +166,7 @@ export default {
             created_time: undefined,
             updated_time: undefined
           }
-          
+
           await createProject(copyData)
           this.$message.success('复制成功')
           this.getList()
@@ -215,4 +212,4 @@ export default {
   margin-top: 20px;
   text-align: right;
 }
-</style> 
+</style>

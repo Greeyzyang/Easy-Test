@@ -15,10 +15,10 @@ def update_interface_status():
             text("UPDATE interfaces SET status = 'in_progress' WHERE status = '' OR status IS NULL")
         )
         session.commit()
-        print("Successfully updated empty interface status values to 'in_progress'")
+        logger.info("Successfully updated empty interface status values to 'in_progress'")
     except Exception as e:
         session.rollback()
-        print(f"Error updating interface status: {e}")
+        logger.error(f"Error updating interface status: {e}")
     finally:
         session.close()
 

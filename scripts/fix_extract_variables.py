@@ -34,7 +34,7 @@ async def fix_extract_variables():
         
         fixed_count = 0
         error_count = 0
-        print(f"Found {len(steps)} steps to process")
+        logger.info(f"Found {len(steps)} steps to process")
         
         for step in steps:
             if not step.extract_variables:
@@ -44,7 +44,7 @@ async def fix_extract_variables():
             try:
                 variables = json.loads(step.extract_variables)
                 if not isinstance(variables, list):
-                    print(f"Step {step.id}: extract_variables is not a list")
+                    logger.warning(f"Step {step.id}: extract_variables is not a list")
                     continue
                     
                 # 3. 修复每个变量配置
@@ -60,14 +60,14 @@ async def fix_extract_variables():
                         fixed_var = var.copy()
                         path = var.get('path', '')
                         if not path:
-                            print(f"Step {step.id}: Missing path in variable config")
+                            logger.warning(f"Step {step.id}: Missing path in variable config")
                             continue
                             
                         fixed_var['name'] = generate_valid_name(path)
                         fixed_variables.append(fixed_var)
-                        print(f"Step {step.id}: Generated name '{fixed_var['name']}' from path '{path}'")
+                        logger.info(f"Step {step.id}: Generated name '{fixed_var['name']}' from path '{path}'")
                     else:
-                        print(f"Step {step.id}: Invalid variable format")
+                        logger.warning(f"Step {step.id}: Invalid variable format")
                         continue
                 
                 # 4. 更新数据库
@@ -78,22 +78,22 @@ async def fix_extract_variables():
                         .values(extract_variables=json.dumps(fixed_variables))
                     )
                     fixed_count += 1
-                    print(f"Step {step.id}: Updated {len(fixed_variables)} variables")
+                    logger.info(f"Step {step.id}: Updated {len(fixed_variables)} variables")
                     
             except json.JSONDecodeError:
-                print(f"Step {step.id}: Invalid JSON format")
+                logger.error(f"Step {step.id}: Invalid JSON format")
                 error_count += 1
                 continue
             except Exception as e:
-                print(f"Step {step.id}: Error: {str(e)}")
+                logger.error(f"Step {step.id}: Error: {str(e)}")
                 error_count += 1
                 continue
         
         # 5. 提交更改
         await session.commit()
-        print(f"\nSummary:")
-        print(f"- Fixed {fixed_count} steps")
-        print(f"- Encountered {error_count} errors")
+        logger.info("\nSummary:")
+        logger.info(f"- Fixed {fixed_count} steps")
+        logger.info(f"- Encountered {error_count} errors")
 
 if __name__ == "__main__":
     asyncio.run(fix_extract_variables()) 

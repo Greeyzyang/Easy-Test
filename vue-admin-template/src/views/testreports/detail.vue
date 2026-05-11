@@ -189,13 +189,17 @@ export default {
   },
   methods: {
     statusTagType(status) {
+      const s = String(status).toUpperCase()
       const statusMap = {
-        passed: 'success',
-        failed: 'danger',
-        skipped: 'info',
-        running: 'warning'
+        PASSED: 'success',
+        COMPLETED: 'success',
+        FAILED: 'danger',
+        IN_PROGRESS: 'warning',
+        RUNNING: 'warning',
+        PENDING: 'info',
+        SKIPPED: 'info'
       }
-      return statusMap[String(status).toLowerCase()] || 'info'
+      return statusMap[s] || 'info'
     },
     async getReportDetail() {
       try {

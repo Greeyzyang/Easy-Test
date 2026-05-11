@@ -27,7 +27,9 @@ class FunctionList(BaseModel):
 
 class FunctionRun(BaseModel):
     """函数执行请求模型"""
-    name: str
+    name: Optional[str] = None
+    code: Optional[str] = None
+    entry_name: Optional[str] = None
     parameters: Optional[List[Any]] = None
 
 class FunctionRunResult(BaseModel):

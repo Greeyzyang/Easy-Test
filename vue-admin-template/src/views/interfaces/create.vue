@@ -35,7 +35,7 @@ export default {
             message: '创建成功',
             type: 'success'
           })
-          this.$router.push('/interfaces/list')
+          this.$router.push('/design/interfaces')
         } else {
           throw new Error(response.message || '创建接口失败')
         }
@@ -47,7 +47,7 @@ export default {
       }
     },
     onCancel() {
-      this.$router.push('/interfaces/list')
+      this.$router.push('/design/interfaces')
     }
   }
 }

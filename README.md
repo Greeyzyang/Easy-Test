@@ -130,6 +130,75 @@ graph TB
 ### 🤖 **AI-Powered Capabilities**
 - **智能用例生成**：基于 LLM 分析接口定义，自动生成覆盖率高的测试用例。
 - **自然语言交互**：内置 AI 助手，支持测试知识库问答与 SQL 辅助生成。
+- **牛马智能体 (Agent)**：基于 LangGraph ReAct 架构，深度集成 Jira 数据，支持 Bug 周转率分析、修复时长统计等复杂业务洞察。
+
+#### 🧠 智能体工作流 (Agent Workflow)
+
+平台采用先进的 **动态技能加载 (Dynamic Skill Loading)** 架构，实现了从"通用大模型"到"垂直领域专家"的即时切换。
+
+```mermaid
+graph TD
+    %% ================= 样式定义 =================
+    classDef user fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1
+    classDef brain fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c
+    classDef skill fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
+    classDef tool fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#e65100
+    classDef output fill:#fff8e1,stroke:#fbc02d,stroke-width:2px,color:#f57f17
+
+    %% ================= 核心流程 =================
+    User((👨‍💻 User Input)):::user
+    Output((🎉 Final Response)):::output
+
+    subgraph Phase1 ["Phase 1: 意图识别 (Intent Recognition)"]
+        direction TB
+        Intent_LLM["�️ Intent Classifier\n(LLM Analysis)"]:::brain
+        Skill_Selector["� Skill Router\n(Select Skills)"]:::brain
+    end
+
+    subgraph Phase2 ["Phase 2: 动态加载 (Dynamic Loading)"]
+        direction TB
+        Prompt_Loader["📝 Prompt Loader\n(Load *.md)"]:::skill
+        Tool_Filter["🛠️ Tool Filter\n(Scope Tools)"]:::tool
+        
+        subgraph Skill_Files ["📂 Skill Prompts"]
+            Jira_MD["jira_skill.md"]:::skill
+            Test_MD["testing_skill.md"]:::skill
+            KB_MD["knowledge_skill.md"]:::skill
+        end
+    end
+
+    subgraph Phase3 ["Phase 3: ReAct 推理 (Execution)"]
+        direction TB
+        Agent["🤖 Agent Core\n(LangGraph)"]:::brain
+        Exec["⚡ Tool Execution"]:::tool
+        Memory["🗄️ Checkpointer"]:::brain
+        
+        Agent <-->|"Thought/Action"| Exec
+        Agent <--> Memory
+    end
+
+    %% ================= 连线逻辑 =================
+    User --> Intent_LLM
+    Intent_LLM --> Skill_Selector
+    
+    Skill_Selector -->|"Match"| Prompt_Loader
+    Skill_Selector -->|"Filter"| Tool_Filter
+    
+    Prompt_Loader -.->|"Read"| Skill_Files
+    
+    Prompt_Loader -->|"Inject Context"| Agent
+    Tool_Filter -->|"Bind Tools"| Agent
+    
+    Agent -- "Result" --> Output
+```
+
+**工作流特性：**
+
+1.  **意图识别 (Intent Detection)**: 系统首先分析用户输入，识别出是需要 "Jira 管理"、"测试生成" 还是 "知识问答"。
+2.  **动态加载 (Dynamic Loading)**:
+    *   根据意图，动态加载 `app/prompts/skills/` 目录下对应的 `skill.md` (如 `testing_skill.md`)。
+    *   仅挂载与该技能相关的 Tools，避免工具混淆，提高准确率。
+3.  **专注执行 (Focused Execution)**: Agent 在特定技能的上下文约束下进行 ReAct 推理，输出更专业、规范的结果。
 
 ---
 

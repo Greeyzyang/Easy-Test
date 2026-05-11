@@ -2,7 +2,12 @@ import request from '@/utils/request'
 
 
 // 获取项目列表
-export function getProjectList(params) {
+export function getProjectList(listQueryParams) {
+  const params = listQueryParams ? {
+    skip: Math.max(((listQueryParams.page || 1) - 1) * (listQueryParams.limit || 10), 0),
+    limit: listQueryParams.limit || 10,
+    name: listQueryParams.name
+  } : {}
   return request({
     url: '/rest/v1/projects/',
     method: 'get',

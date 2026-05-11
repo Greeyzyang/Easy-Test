@@ -22,6 +22,16 @@
           />
         </el-select>
       </el-form-item>
+      <el-form-item label="所属模块" prop="module_id">
+        <el-select v-model="form.module_id" placeholder="请选择所属模块" style="width: 100%" clearable filterable>
+          <el-option
+            v-for="item in moduleOptions"
+            :key="item.id"
+            :label="item.name"
+            :value="item.id"
+          />
+        </el-select>
+      </el-form-item>
       <el-form-item label="标签" prop="tags">
         <el-tag
           v-for="tag in form.tags"
@@ -33,8 +43,8 @@
         </el-tag>
         <el-input
           v-if="tagInputVisible"
-          v-model="tagKey"
           ref="tagKeyInput"
+          v-model="tagKey"
           class="tag-input"
           size="small"
           placeholder="标签名"
@@ -63,8 +73,8 @@
               width="60"
               align="center"
             >
-              <template slot-scope="scope">
-                <i class="el-icon-rank drag-handle" style="cursor: move; font-size: 16px;"></i>
+              <template slot-scope="{}">
+                <i class="el-icon-rank drag-handle" style="cursor: move; font-size: 16px;" />
               </template>
             </el-table-column>
             <el-table-column
@@ -89,10 +99,9 @@
             <el-table-column
               label="请求地址"
               min-width="180"
-              show-overflow-tooltip
             >
               <template slot-scope="scope">
-                <span class="url-text">{{ (getStepInterface(scope.row.interface_id) && getStepInterface(scope.row.interface_id).url) || '' }}</span>
+                <EllipsisCell :value="(getStepInterface(scope.row.interface_id) && getStepInterface(scope.row.interface_id).url) || ''" :detect-json="false" />
               </template>
             </el-table-column>
             <el-table-column
@@ -129,13 +138,13 @@
             </el-table-column>
           </el-table>
           <div class="add-step-wrapper">
-            <el-button 
-              type="primary" 
-              class="add-step-btn" 
+            <el-button
+              type="primary"
+              class="add-step-btn"
               @click="showAddStepDialog"
             >
               <div class="add-step-content">
-                <i class="el-icon-plus add-icon"></i>
+                <i class="el-icon-plus add-icon" />
                 <span class="add-text">添加测试步骤</span>
                 <div class="add-desc">点击添加新的测试步骤</div>
               </div>
@@ -180,8 +189,8 @@
             :data="filteredInterfaces"
             style="width: 100%"
             height="400"
-            @row-click="handleInterfaceSelect"
             highlight-current-row
+            @row-click="handleInterfaceSelect"
             @row-dblclick="confirmAddStep"
           >
             <el-table-column prop="name" label="接口名称" min-width="150" />
@@ -199,15 +208,14 @@
           </el-table>
           <div class="pagination-container">
             <el-pagination
-              @size-change="handleSizeChange"
-              @current-change="handleCurrentChange"
               :current-page="currentPage"
               :page-sizes="[10, 20, 50, 100]"
               :page-size="pageSize"
               layout="total, sizes, prev, pager, next, jumper"
               :total="totalInterfaces"
-            >
-            </el-pagination>
+              @size-change="handleSizeChange"
+              @current-change="handleCurrentChange"
+            />
           </div>
         </div>
         <div slot="footer" class="dialog-footer">
@@ -249,12 +257,14 @@ import { createTestCase } from '@/api/testcase'
 import { getInterfaceList, getInterface } from '@/api/interface'
 import { getModuleList } from '@/api/module'
 import Sortable from 'sortablejs'
+import EllipsisCell from '@/components/Common/EllipsisCell'
 import StepConfigForm from './components/StepConfigForm.vue'
 
 export default {
   name: 'TestcaseCreate',
   components: {
-    StepConfigForm
+    StepConfigForm,
+    EllipsisCell
   },
   data() {
     return {
@@ -262,6 +272,7 @@ export default {
         name: '',
         description: '',
         priority: 3,
+        module_id: '',
         tags: [],
         steps: [],
         created_time: new Date().toISOString(),
@@ -305,31 +316,17 @@ export default {
         extract_variables: []
       },
       tagInputVisible: false,
-      tagKey: '',
+      tagKey: ''
     }
   },
   computed: {
     filteredInterfaces() {
-      let filtered = this.interfaceOptions
-      
-      // 模块筛选
-      if (this.moduleSearch) {
-        filtered = filtered.filter(item => {
-          return String(item.module_id) === String(this.moduleSearch)
-        })
-      }
-      
-      // 关键词搜索
-      if (this.interfaceSearch) {
-        const search = this.interfaceSearch.toLowerCase()
-        filtered = filtered.filter(item => 
-          item.name.toLowerCase().includes(search) ||
-          item.url.toLowerCase().includes(search) ||
-          item.method.toLowerCase().includes(search)
-        )
-      }
-      
-      return filtered
+      return this.interfaceOptions
+    }
+  },
+  watch: {
+    'form.steps.length'() {
+      this.initSortable()
     }
   },
   created() {
@@ -341,24 +338,19 @@ export default {
       // 清除保存的状态
       sessionStorage.removeItem('testcase_create_state')
     }
-    
+
     this.getInterfaces()
     this.getModules()
   },
   mounted() {
     this.initSortable()
   },
-  watch: {
-    'form.steps.length'() {
-      this.initSortable()
-    }
-  },
   methods: {
     async getModules() {
       try {
         const response = await getModuleList({ limit: 1000 })
         if (response.code === '0' && response.data) {
-          this.moduleOptions = response.data
+          this.moduleOptions = response.data.items || response.data
         }
       } catch (error) {
         console.error('获取模块列表失败:', error)
@@ -382,17 +374,20 @@ export default {
     },
     async getInterfaces() {
       try {
-        const response = await getInterfaceList({ 
+        const response = await getInterfaceList({
           page: this.currentPage,
           limit: this.pageSize,
+          name: this.interfaceSearch,
+          moduleId: this.moduleSearch,
           with_module: true
         })
         if (response.code === '0' && response.data) {
-          this.interfaceOptions = response.data.map(item => ({
+          const { items, total } = response.data
+          this.interfaceOptions = (items || []).map(item => ({
             ...item,
             module_id: item.module_id || ''
           }))
-          this.totalInterfaces = response.total || 0
+          this.totalInterfaces = total || 0
         }
       } catch (error) {
         console.error('获取接口列表失败:', error)
@@ -416,7 +411,8 @@ export default {
       this.getInterfaces()
     },
     handleSearch() {
-      // 搜索逻辑已经在 computed 中处理
+      this.currentPage = 1
+      this.getInterfaces()
     },
     handleInterfaceSelect(row) {
       this.selectedInterface = row
@@ -426,7 +422,7 @@ export default {
         this.$message.warning('请选择一个接口')
         return
       }
-      
+
       try {
         // 获取接口默认配置
         const interfaceResponse = await getInterface(this.selectedInterface.id)
@@ -435,7 +431,7 @@ export default {
         }
 
         const interfaceConfig = interfaceResponse.data
-        
+
         // 创建新步骤时添加唯一ID
         const newStep = {
           id: Date.now().toString(), // 添加唯一ID
@@ -453,7 +449,7 @@ export default {
           status: 'PENDING',
           order: this.form.steps.length + 1
         }
-        
+
         this.form.steps.push(newStep)
         this.addStepDialogVisible = false
         this.$message.success('添加步骤成功')
@@ -503,7 +499,7 @@ export default {
       try {
         // 验证表单
         await this.$refs.form.validate()
-        
+
         // 验证测试步骤
         if (!this.form.steps.length) {
           this.$message.error('请添加测试步骤')
@@ -512,7 +508,7 @@ export default {
 
         // 构建创建测试用例的数据
         const now = new Date().toISOString()
-        
+
         const createData = {
           name: this.form.name,
           description: this.form.description,
@@ -520,47 +516,47 @@ export default {
           tags: this.form.tags,
           steps: this.form.steps.map(step => {
             // headers/params 处理
-            let headers = step.headers;
+            let headers = step.headers
             if (Array.isArray(headers)) {
               headers = headers.reduce((acc, cur) => {
-                if (cur.name) acc[cur.name] = cur.value;
-                return acc;
-              }, {});
+                if (cur.name) acc[cur.name] = cur.value
+                return acc
+              }, {})
             }
-            let params = step.params;
+            let params = step.params
             if (Array.isArray(params)) {
               params = params.reduce((acc, cur) => {
-                if (cur.name) acc[cur.name] = cur.value;
-                return acc;
-              }, {});
+                if (cur.name) acc[cur.name] = cur.value
+                return acc
+              }, {})
             }
 
             // extract_variables 处理
-            let extract_variables = step.extract_variables;
+            let extract_variables = step.extract_variables
             if (Array.isArray(extract_variables)) {
               extract_variables = extract_variables.map(ev => ({
-                name: ev.name || '',  // 确保有 name 字段
+                name: ev.name || '', // 确保有 name 字段
                 source: ev.source ? String(ev.source).toUpperCase() : 'RESPONSE',
                 path: ev.path || '',
                 description: ev.description || ''
-              }));
+              }))
             }
 
             // body 处理
-            let body = step.body;
+            let body = step.body
             // 优先用 body_form（如果有），否则用 body
             if (Array.isArray(step.body_form) && step.body_form.length > 0) {
               body = step.body_form.reduce((acc, cur) => {
-                if (cur.name) acc[cur.name] = cur.value;
-                return acc;
-              }, {});
+                if (cur.name) acc[cur.name] = cur.value
+                return acc
+              }, {})
             } else if (typeof body === 'string') {
-              try { body = JSON.parse(body); } catch { body = {}; }
+              try { body = JSON.parse(body) } catch { body = {} }
             } else if (Array.isArray(body)) {
               body = body.reduce((acc, cur) => {
-                if (cur.name) acc[cur.name] = cur.value;
-                return acc;
-              }, {});
+                if (cur.name) acc[cur.name] = cur.value
+                return acc
+              }, {})
             }
 
             return {
@@ -580,7 +576,7 @@ export default {
                 description: assertion.description
               })) : [],
               order: step.order
-            };
+            }
           }),
           created_time: now,
           updated_time: now,
@@ -591,7 +587,7 @@ export default {
         const response = await createTestCase(createData)
         if (response.code === '0') {
           this.$message.success('创建成功')
-          this.$router.push('/testcases')
+          this.$router.push('/design/testcases')
         } else {
           this.$message.error(response.message || '创建失败')
         }
@@ -616,16 +612,16 @@ export default {
           onEnd: ({ newIndex, oldIndex }) => {
             // 保存当前步骤的完整数据
             const targetRow = { ...this.form.steps[oldIndex] }
-            
+
             // 更新数组
             this.form.steps.splice(oldIndex, 1)
             this.form.steps.splice(newIndex, 0, targetRow)
-            
+
             // 更新步骤顺序
             this.form.steps.forEach((step, index) => {
               this.$set(step, 'order', index + 1)
             })
-            
+
             // 强制刷新表格
             this.$nextTick(() => {
               if (this.$refs.stepsTable) {
@@ -650,7 +646,7 @@ export default {
         const response = await getInterface(currentStep.interface_id)
         if (response.code === '0' && response.data) {
           const interfaceDetail = response.data
-          
+
           // 1. 合并 headers
           let headers = []
           if (currentStep.headers) {
@@ -676,7 +672,7 @@ export default {
           }
 
           // 3. 合并 body
-          let bodyType = (currentStep.request_type || interfaceDetail.request_type || 'FORM').toUpperCase()
+          const bodyType = (currentStep.request_type || interfaceDetail.request_type || 'FORM').toUpperCase()
           let bodyJson = ''
           let bodyForm = []
           if (bodyType === 'JSON') {
@@ -697,13 +693,13 @@ export default {
             }
           }
 
-          let paramType = (bodyType === 'JSON' || bodyType === 'FORM') ? 'body' : 'query'
+          const paramType = (bodyType === 'JSON' || bodyType === 'FORM') ? 'body' : 'query'
 
           // 4. 处理 assertions 和 extract_variables
-          let assertions = Array.isArray(currentStep.assertions) ? currentStep.assertions : []
+          const assertions = Array.isArray(currentStep.assertions) ? currentStep.assertions : []
 
           let extract_variables = []
-          
+
           if (currentStep.extract_variables) {
             if (Array.isArray(currentStep.extract_variables)) {
               extract_variables = currentStep.extract_variables.map(ev => ({
@@ -1102,7 +1098,7 @@ export default {
   justify-content: center;
   align-items: center;
   gap: 5px;
-  
+
   .el-button {
     margin: 0;
     padding: 5px 8px;

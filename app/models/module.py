@@ -2,7 +2,7 @@ from sqlalchemy import Column, String, CHAR, Text, ForeignKey
 import uuid
 from sqlalchemy.orm import relationship
 from .base_model import Base
-from .testcase import testcase_to_module
+# from .testcase import testcase_to_module
 
 
 class Module(Base):
@@ -15,4 +15,4 @@ class Module(Base):
     
     project = relationship("Project", back_populates="modules")
     interfaces = relationship("Interface", back_populates="module")
-    testcases = relationship("Testcase", secondary=testcase_to_module, back_populates="modules")
+    testcases = relationship("Testcase", back_populates="module")

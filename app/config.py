@@ -11,8 +11,8 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 KB_PDF_PATH = os.getenv("KB_PDF_PATH", "app/Gino_product_specification.pdf")
 
 # SMTP邮件服务器配置
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.qq.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.qiye.aliyun.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USERNAME)
@@ -23,36 +23,42 @@ SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() == "true"
 VERIFY_BASE_URL = os.getenv("VERIFY_BASE_URL", "http://localhost:9528/#/verify-email")
 RESET_BASE_URL = os.getenv("RESET_BASE_URL", "http://localhost:9528/#/reset-password")
 
+from typing import Optional
+
 class Settings:
     # Celery Configuration
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
 
     # Jira Configuration
-    JIRA_URL: str = "https://ginolt.atlassian.net/"
-    JIRA_USER: str = "yangzhi@ginolegaltech.cn"
-    JIRA_API_TOKEN: str = "ATATT3xFfGF0IQy00pDWY7N0mJUHVj3sQ1SMAuf_YwSsI3TI9JjVRV2B01aiWjr-Po7mZ4wlLMLJ5E6xpEor8aD101N-wodn7dxnUA6Hs6zSQINPs_UXMErTGX-LBo7pCJ-QOmXghRyq1IG9sEJx-mRNwd9ZyHxomA40a-k7Do1AaNx4Gbm5_jQ=449A3781"
+    JIRA_URL: str = os.getenv("JIRA_URL", "")
+    JIRA_USER: str = os.getenv("JIRA_USER", "")
+    JIRA_API_TOKEN: str = os.getenv("JIRA_API_TOKEN", "")
     # 连接校验与证书配置（用于降低初始化时的报错与重试噪音）
-    JIRA_VALIDATE: bool = False  # 初始化时不访问 serverInfo，避免不可达时持续重试报警
-    JIRA_VERIFY: bool = True     # HTTPS 证书校验，若公司代理拦截可在 .env 中临时设为 False（不建议生产环境）
+    JIRA_VALIDATE: bool = os.getenv("JIRA_VALIDATE", "false").lower() == "true"
+    JIRA_VERIFY: bool = os.getenv("JIRA_VERIFY", "true").lower() == "true"
 
     # LLM Configuration (Optimized for Doubao Model)
-    LLM_API_KEY: str = "d1a85980-dc2b-427d-be4c-bd75b615f768"
-    LLM_API_BASE: str = "https://ark.cn-beijing.volces.com/api/v3"
-    LLM_MODEL_NAME: str = "doubao-seed-1-6-250615"
+    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
+    LLM_API_BASE: str = os.getenv("LLM_API_BASE", "")
+    LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "")
     
     # Doubao Model Optimization Settings
-    LLM_TIMEOUT: int = 600  # Increased timeout for Doubao model (10 minutes)
-    JIRA_TIMEOUT: int = 30  # Keep Jira timeout at 30s
-    MAX_RETRIES: int = 3    # Maximum retry attempts
-    ENABLE_IMAGE_PROCESSING: bool = False  # Disable image processing
+    LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "600"))
+    JIRA_TIMEOUT: int = int(os.getenv("JIRA_TIMEOUT", "30"))
+    MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
+    # 多模态分析开关（默认关闭，避免 Token 爆炸）
+    ENABLE_IMAGE_PROCESSING: bool = os.getenv("ENABLE_IMAGE_PROCESSING", "false").lower() == "true"
+    # 最大附件处理大小（MB），默认 5MB
+    MAX_ATTACHMENT_SIZE_MB: int = int(os.getenv("MAX_ATTACHMENT_SIZE_MB", "5"))
     
     # Doubao-specific LLM Settings
-    LLM_MAX_TOKENS: int = 30000  # 适中的token限制，防止响应被截断
-    LLM_TEMPERATURE: float = 0.3  # 提高创造性和多样性
-    DOUBAO_SIMPLE_MODE: bool = True  # 启用简单模式，提高JSON格式稳定性
+    BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
+    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "8000"))
+    LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.3"))
+    DOUBAO_SIMPLE_MODE: bool = os.getenv("DOUBAO_SIMPLE_MODE", "true").lower() == "true"
 
-    JIRA_COMPONENTS_XLSX_PATH: str | None = "app/components.xlsx"
+    JIRA_COMPONENTS_XLSX_PATH: Optional[str] = os.getenv("JIRA_COMPONENTS_XLSX_PATH", "app/components.xlsx")
 
     # SMTP Email Configuration
     SMTP_SERVER: str = SMTP_SERVER
@@ -68,7 +74,7 @@ class Settings:
     RESET_BASE_URL: str = RESET_BASE_URL
 
     # Knowledge Base PDF Path
-    KB_PDF_PATH: str | None = KB_PDF_PATH
+    KB_PDF_PATH: Optional[str] = KB_PDF_PATH
 
     class Config:
         env_file = ".env"

@@ -85,7 +85,7 @@ export default {
               type: 'success'
             })
             this.submitLoading = false
-            this.$router.push('/modules/list')
+            this.$router.push('/design/modules')
           }).catch(error => {
             this.submitLoading = false
           })
@@ -95,7 +95,7 @@ export default {
       })
     },
     onCancel() {
-      this.$router.push('/modules/list')
+      this.$router.push('/design/modules')
     }
   }
 }

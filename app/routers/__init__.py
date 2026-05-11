@@ -8,10 +8,11 @@ from .teststeps import router as teststeps_router
 from .functions import router as functions_router
 from .variables import router as variables_router
 from .assistant import router as assistant_router
-# 新增 metrics 路由导出
 from .metrics import router as metrics_router
+from .ai_models import router as ai_models_router
+from .mcp_servers import router as mcp_servers_router
+from .performance_tests import router as performance_tests_router
 
-# 在 __all__ 列表中添加
 __all__ = [
     "projects_router",
     "modules_router",
@@ -23,5 +24,8 @@ __all__ = [
     "functions_router",
     "variables_router",
     "assistant_router",
-    "metrics_router"
+    "metrics_router",
+    "ai_models_router",
+    "mcp_servers_router",
+    "performance_tests_router"
 ]

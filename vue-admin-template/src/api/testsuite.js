@@ -2,10 +2,15 @@ import request from '@/utils/request'
 
 /**
  * 获取测试套件列表
- * @param {Object} params - 查询参数
+ * @param {Object} listQueryParams - 查询参数
  * @returns {Promise}
  */
-export function getTestSuites(params) {
+export function getTestSuites(listQueryParams) {
+  const params = listQueryParams ? {
+    skip: Math.max(((listQueryParams.page || 1) - 1) * (listQueryParams.limit || 10), 0),
+    limit: listQueryParams.limit || 10,
+    name: listQueryParams.name
+  } : {}
   return request({
     url: '/rest/v1/testsuites/',
     method: 'get',

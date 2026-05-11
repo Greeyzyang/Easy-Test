@@ -23,7 +23,7 @@
     >
       <el-table-column label="报告名称" min-width="150px">
         <template slot-scope="{row}">
-          <router-link :to="'/testreports/detail/'+row.id" class="link-type">
+          <router-link :to="'/execution/testreports/detail/'+row.id" class="link-type">
             <span>{{ row.name }}</span>
           </router-link>
         </template>
@@ -108,6 +108,7 @@ export default {
         PASSED: 'success',
         COMPLETED: 'success',
         FAILED: 'danger',
+        RUNNING: 'warning',
         IN_PROGRESS: 'warning',
         PENDING: 'info',
         SKIPPED: 'info'
@@ -117,19 +118,22 @@ export default {
     async getList() {
       try {
         this.listLoading = true
-        const { data } = await getTestReports(this.listQuery)
-        this.list = data.map(item => ({
-          id: item.id,
-          name: item.name,
-          suite_name: item.testsuite_name,
-          status: item.status || 'success',
-          duration: item.duration,
-          pass_rate: item.pass_rate,
-          total_cases: item.total_cases,
-          passed_cases: item.passed_cases,
-          failed_cases: item.failed_cases
-        }))
-        this.total = data.length
+        const response = await getTestReports(this.listQuery)
+        if (response.code === '0' && response.data) {
+          const { items, total } = response.data
+          this.list = (items || []).map(item => ({
+            id: item.id,
+            name: item.name,
+            suite_name: item.testsuite_name,
+            status: item.status || 'success',
+            duration: item.duration,
+            pass_rate: item.pass_rate,
+            total_cases: item.total_cases,
+            passed_cases: item.passed_cases,
+            failed_cases: item.failed_cases
+          }))
+          this.total = total || 0
+        }
       } catch (error) {
         this.$message.error('获取测试报告列表失败：' + error.message)
       } finally {
@@ -138,11 +142,14 @@ export default {
     },
     async getProjects() {
       try {
-        const { data } = await getProjectList()
-        this.projectOptions = data.map(item => ({
-          label: item.name,
-          value: item.id
-        }))
+        const response = await getProjectList()
+        if (response.code === '0' && response.data) {
+          const items = response.data.items || response.data
+          this.projectOptions = items.map(item => ({
+            label: item.name,
+            value: item.id
+          }))
+        }
       } catch (error) {
         this.$message.error('获取项目列表失败：' + error.message)
       }
@@ -152,7 +159,7 @@ export default {
       this.getList()
     },
     handleDetail(row) {
-      this.$router.push(`/testreports/detail/${row.id}`)
+      this.$router.push(`/execution/testreports/detail/${row.id}`)
     },
     async handleDelete(row) {
       try {

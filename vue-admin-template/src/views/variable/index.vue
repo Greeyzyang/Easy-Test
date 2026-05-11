@@ -34,7 +34,11 @@
       style="width: 100%;"
     >
       <el-table-column prop="key" label="变量名" min-width="150" />
-      <el-table-column prop="value" label="变量值" show-overflow-tooltip />
+      <el-table-column prop="value" label="变量值" min-width="200">
+        <template slot-scope="{row}">
+          <EllipsisCell :value="row.value" />
+        </template>
+      </el-table-column>
       <el-table-column prop="description" label="描述" />
       <el-table-column prop="created_time" label="创建时间" width="160" align="center">
         <template slot-scope="scope">
@@ -67,12 +71,12 @@
 
 <script>
 import { getList, deleteVariable } from '@/api/variable'
-import router from '@/router'
-import Pagination from '@/components/Pagination'
+import Pagination from '@/components/Layout/Pagination'
+import EllipsisCell from '@/components/Common/EllipsisCell'
 
 export default {
   name: 'VariableIndex',
-  components: { Pagination },
+  components: { Pagination, EllipsisCell },
   data() {
     return {
       list: [],
@@ -92,15 +96,11 @@ export default {
     async getList() {
       this.listLoading = true
       try {
-        const response = await getList({
-          page: this.listQuery.page,
-          limit: this.listQuery.limit,
-          key: this.listQuery.key
-        })
-        // 假设后端返回 { code: '0', data: [...], total: 100 }
-        if (response && response.code === '0' && Array.isArray(response.data)) {
-          this.list = response.data
-          this.total = response.total || response.data.length
+        const response = await getList(this.listQuery)
+        // 后端返回 { code: '0', data: { items: [...], total: 100 } }
+        if (response && response.code === '0' && response.data) {
+          this.list = response.data.items || []
+          this.total = response.data.total || 0
         } else {
           this.$message.error('获取变量列表失败：数据格式错误')
         }
@@ -115,10 +115,10 @@ export default {
       this.getList()
     },
     handleCreate() {
-      router.push({ path: '/variable/create' })
+      this.$router.push({ path: '/design/variables/create' })
     },
     handleEdit(row) {
-      router.push({ path: `/variable/edit`, query: { id: row.id } })
+      this.$router.push({ path: '/design/variables/edit', query: { id: row.id }})
     },
     async handleDelete(row) {
       try {
@@ -162,4 +162,4 @@ export default {
     margin-right: 10px;
   }
 }
-</style> 
+</style>

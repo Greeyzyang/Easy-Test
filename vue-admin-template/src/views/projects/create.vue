@@ -7,7 +7,8 @@
       <el-form-item label="项目描述" prop="description">
         <el-input v-model="form.description" type="textarea" rows="4" placeholder="请输入项目描述" />
       </el-form-item>
-      <el-form-item>
+
+      <el-form-item style="margin-top: 20px;">
         <el-button type="primary" @click="onSubmit">创建</el-button>
         <el-button @click="onCancel">取消</el-button>
       </el-form-item>
@@ -24,7 +25,9 @@ export default {
     return {
       form: {
         name: '',
-        description: ''
+        description: '',
+        headers: {},
+        variables: {}
       },
       rules: {
         name: [
@@ -59,14 +62,14 @@ export default {
                 message: '创建成功',
                 type: 'success'
               })
-              this.$router.push('/projects/list')
+              this.$router.push('/design/projects')
             } else {
               this.$message.error(response.msg || '创建失败')
             }
           })
           .catch(error => {
             console.error('创建项目失败:', error)
-            this.$message.error(error.response?.data?.msg || '创建失败，请检查网络连接')
+            this.$message.error(error.response?.data?.detail || error.message || '创建项目失败')
           })
           .finally(() => {
             loading.close()
@@ -74,7 +77,7 @@ export default {
       })
     },
     onCancel() {
-      this.$router.push('/projects/list')
+      this.$router.push('/design/projects')
     }
   }
 }
@@ -83,5 +86,11 @@ export default {
 <style scoped>
 .app-container {
   padding: 20px;
+}
+.editor-container {
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  overflow: hidden;
+  height: 300px;
 }
 </style> 

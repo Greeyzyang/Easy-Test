@@ -65,7 +65,7 @@
           <el-input
             v-model="bugProjectKey"
             size="mini"
-            placeholder="选择项目（如 Gino）"
+            placeholder="选择项目（如 DM）"
             style="width: 160px; margin-right: 8px;"
             prefix-icon="el-icon-search"
             clearable
@@ -211,8 +211,8 @@
 <script>
 import { mapGetters } from 'vuex'
 import { getDashboardMetrics, getJiraBugDistribution, getJiraFixVersions, getJiraVersionTrend } from '@/api/metrics'
-import PieChart from '@/components/Charts/PieChart.vue'
-import RingProgress from '@/components/Charts/RingProgress.vue'
+import PieChart from '@/components/Charts/PieChart'
+import RingProgress from '@/components/Charts/RingProgress'
 import * as echarts from 'echarts'
 
 export default {
@@ -239,7 +239,7 @@ export default {
         { key: 'report_count', title: '测试报告', icon: 'el-icon-data-analysis' }
       ],
       // Jira bug distribution state
-      bugProjectKey: 'Gino',
+      bugProjectKey: 'DM',
       // 日期范围默认置空，由用户选择
       jiraDateRange: [],
       jiraSummary: { total_bugs: 0, items: [] },

@@ -1,6 +1,11 @@
 import request from '@/utils/request'
 
-export function getFunctionList(params) {
+export function getFunctionList(listQueryParams) {
+  const params = listQueryParams ? {
+    skip: Math.max(((listQueryParams.page || 1) - 1) * (listQueryParams.limit || 10), 0),
+    limit: listQueryParams.limit || 10,
+    name: listQueryParams.name
+  } : {}
   return request({
     url: '/rest/v1/functions/',
     method: 'get',

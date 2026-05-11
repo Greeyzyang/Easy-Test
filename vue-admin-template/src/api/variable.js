@@ -1,7 +1,12 @@
 import request from '@/utils/request'
 
 // 获取全局变量列表
-export function getList(params) {
+export function getList(listQueryParams) {
+  const params = listQueryParams ? {
+    skip: Math.max(((listQueryParams.page || 1) - 1) * (listQueryParams.limit || 10), 0),
+    limit: listQueryParams.limit || 10,
+    key: listQueryParams.key
+  } : {}
   return request({
     url: '/rest/v1/variables/',
     method: 'get',

@@ -1,33 +1,18 @@
 import request from '@/utils/request'
 
-export function startGenerationTask(data) {
-  return request({
-    url: '/rest/v1/ai/generate-task/',
-    method: 'post',
-    data
-  })
-}
-
-export function getTaskStatus(taskId) {
-  return request({
-    url: `/rest/v1/ai/task-status/${taskId}/`,
-    method: 'get'
-  })
-}
-
-// 新增：下载Excel，返回blob
-export function downloadTestcasesXlsx(taskId) {
-  return request({
-    url: `/rest/v1/ai/export-xlsx/${taskId}/`,
-    method: 'get',
-    responseType: 'blob'
-  })
-}
-
 export function kbQuery(data) {
   return request({
     url: '/rest/v1/ai/kb/query/',
     method: 'post',
     data
+  })
+}
+
+export function chatWithAgent(data) {
+  return request({
+    url: '/rest/v1/ai/chat/',
+    method: 'post',
+    data,
+    timeout: 300000 // 为 AI 对话设置更长的超时时间（300秒 / 5分钟）
   })
 }

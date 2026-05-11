@@ -207,19 +207,19 @@
               <el-table-column label="数据来源" width="120">
                 <template slot-scope="scope">
                   <el-select v-model="scope.row.source" placeholder="请选择数据来源">
-                    <el-option label="响应体" value="response">
+                    <el-option label="响应体" value="RESPONSE">
                       <span>响应体</span>
                       <span style="float: right; color: #8492a6; font-size: 13px">使用JSONPath</span>
                     </el-option>
-                    <el-option label="响应头" value="headers">
+                    <el-option label="响应头" value="HEADERS">
                       <span>响应头</span>
                       <span style="float: right; color: #8492a6; font-size: 13px">Header名称</span>
                     </el-option>
-                    <el-option label="Cookie" value="cookies">
+                    <el-option label="Cookie" value="COOKIES">
                       <span>Cookie</span>
                       <span style="float: right; color: #8492a6; font-size: 13px">Cookie名称</span>
                     </el-option>
-                    <el-option label="请求体" value="body">
+                    <el-option label="请求体" value="BODY">
                       <span>请求体</span>
                       <span style="float: right; color: #8492a6; font-size: 13px">使用JSONPath</span>
                     </el-option>
@@ -280,7 +280,7 @@
 </template>
 
 <script>
-import ParamTable from '@/views/interfaces/components/ParamTable.vue'
+import ParamTable from '@/components/Common/ParamTable'
 import Sortable from 'sortablejs'
 import { getFunctionList } from '@/api/function'
 
@@ -478,7 +478,7 @@ export default {
     addExtractVariable() {
       this.formData.extract_variables.push({
         name: '',
-        type: 'json_path',
+        source: 'RESPONSE',
         path: '',
         description: ''
       })
@@ -534,12 +534,12 @@ export default {
       try {
         await this.$refs.form.validate()
         
-        // 转换回原始格式
-        const convertParamsBack = (params) => {
-          return params.map(p => ({
-            name: p.name,
-            value: p.value
-          }))
+        // 转换回原始格式 (Array -> Object)
+        const paramsToObject = (params) => {
+          return params.reduce((acc, cur) => {
+            if (cur.name) acc[cur.name] = cur.value
+            return acc
+          }, {})
         }
 
         // 转换断言数据
@@ -552,7 +552,7 @@ export default {
           }))
         }
         
-        // 保证 extract_variables 每个对象都带 name、path、source
+        // 转换变量提取配置
         const convertExtractVariables = (vars) => {
           return vars.map(ev => ({
             name: ev.name,
@@ -562,15 +562,35 @@ export default {
           }))
         }
         
-        return {
+        const result = {
           ...this.formData,
-          headers: convertParamsBack(this.formData.headers),
-          query_params: convertParamsBack(this.formData.query_params),
-          body_form: convertParamsBack(this.formData.body_form),
+          headers: paramsToObject(this.formData.headers),
           assertions: convertAssertions(this.formData.assertions),
-          extract_variables: convertExtractVariables(this.formData.extract_variables)
+          extract_variables: convertExtractVariables(this.formData.extract_variables),
+          params: paramsToObject(this.formData.query_params)
         }
+
+        // 处理请求体
+        if (this.formData.body_type === 'json') {
+          result.request_type = 'JSON'
+          try {
+            if (this.formData.body_json && this.formData.body_json.trim()) {
+              result.body = JSON.parse(this.formData.body_json)
+            } else {
+              result.body = null
+            }
+          } catch (e) {
+            result.body = null
+          }
+        } else {
+          result.request_type = 'FORM'
+          const bodyForm = paramsToObject(this.formData.body_form)
+          result.body = Object.keys(bodyForm).length > 0 ? bodyForm : null
+        }
+        
+        return result
       } catch (error) {
+        console.error('Validation error:', error)
         throw new Error('表单验证失败')
       }
     },
@@ -592,49 +612,6 @@ export default {
     },
     handleConfigChange() {
       this.$emit('update:config', this.formData)
-    },
-    handleSave() {
-      this.$refs.form.validate(async (valid) => {
-        if (valid) {
-          const formData = {
-            ...this.formData,
-            body: step.body || {},
-            // 确保 headers 是对象
-            headers: this.formData.headers.reduce((acc, { name, value }) => {
-              if (name && value) {
-                acc[name] = value
-              }
-              return acc
-            }, {}),
-            // 确保 body 是对象
-            body: typeof this.formData.body === 'string' 
-              ? JSON.parse(this.formData.body) 
-              : this.formData.body,
-            // 确保 params 是对象
-            params: this.formData.params.reduce((acc, { name, value }) => {
-              if (name && value) {
-                acc[name] = value
-              }
-              return acc
-            }, {}),
-            // 修正 extract_variables 中的 source 值
-            extract_variables: this.formData.extract_variables.map(variable => ({
-              ...variable,
-              source: variable.source.toUpperCase()
-            }))
-          }
-          
-          this.$emit('save', formData)
-          this.$emit('update:visible', false)
-        }
-      })
-    },
-    handleConfirm() {
-      this.$refs.form.validate(valid => {
-        if (valid) {
-          this.$emit('confirm', this.formData)
-        }
-      })
     },
     initSortable() {
       this.$nextTick(() => {

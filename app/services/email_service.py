@@ -1,6 +1,5 @@
 import asyncio
 import smtplib
-import logging
 import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -17,9 +16,11 @@ from app.config import (
     VERIFY_BASE_URL,
     RESET_BASE_URL,
 )
+from app.utils.logger import get_logger
+from urllib.parse import quote
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class EmailService:
@@ -112,7 +113,8 @@ class EmailService:
         self, to_email: str, username: str, token: str
     ) -> bool:
         subject = "请验证您的邮箱 - Easy Test Platform"
-        verification_url = f"{VERIFY_BASE_URL}?token={token}"
+        verification_url = f"{VERIFY_BASE_URL}?token={quote(token)}"
+        logger.debug(f"构造邮箱验证链接: {verification_url}")
         html_content = f"""
         <div style="font-family: Arial, sans-serif; line-height:1.6;">
           <h3>亲爱的 {username},</h3>
@@ -136,7 +138,8 @@ class EmailService:
         self, to_email: str, username: str, token: str
     ) -> bool:
         subject = "重置您的密码 - Easy Test Platform"
-        reset_url = f"{RESET_BASE_URL}?token={token}"
+        reset_url = f"{RESET_BASE_URL}?token={quote(token)}"
+        logger.debug(f"构造重置密码链接: {reset_url}")
         html_content = f"""
         <div style="font-family: Arial, sans-serif; line-height:1.6;">
           <h3>亲爱的 {username},</h3>

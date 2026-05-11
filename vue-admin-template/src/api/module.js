@@ -1,16 +1,18 @@
 import request from '@/utils/request'
 
-export function getModuleList(params = {}) {
-  const { page = 1, limit = 100 } = params
+export function getModuleList(listQueryParams) {
+  const page = (listQueryParams && listQueryParams.page) || 1
+  const limit = (listQueryParams && listQueryParams.limit) || 1000
+  const params = {
+    skip: Math.max(((page) - 1) * limit, 0),
+    limit: limit,
+    name: listQueryParams ? listQueryParams.name : undefined,
+    project_id: listQueryParams ? listQueryParams.project_id : undefined
+  }
   return request({
     url: '/rest/v1/modules/',
     method: 'get',
-    params: {
-      skip: page ? (page - 1) * (limit || 10) : 0,
-      limit: limit || 100,
-      name: params.name,
-      project_id: params.project_id
-    }
+    params
   })
 }
 
