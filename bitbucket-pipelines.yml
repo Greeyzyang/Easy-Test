@@ -73,7 +73,8 @@ pipelines:
               echo "[4/6] Files uploaded successfully."
 
             # SSH 登录服务器执行部署
-            - ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$SSH_HOST 'set -euo pipefail
+            - |
+              ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$SSH_HOST /bin/bash << 'SCRIPT'
 
               echo "[5/6] Stopping old containers..."
               mkdir -p /easy-test
@@ -99,7 +100,7 @@ pipelines:
               echo "[5/6] Waiting for backend to be healthy..."
               timeout 120 bash -c '
                 while true; do
-                  _status=$(docker inspect --format="{{{{.State.Health.Status}}}}" easy-test-backend 2>/dev/null || echo "starting")
+                  _status=$(docker inspect --format="{{.State.Health.Status}}" easy-test-backend 2>/dev/null || echo "starting")
                   if [ "$_status" = "healthy" ]; then
                     break
                   fi
@@ -121,4 +122,5 @@ pipelines:
               echo "[6/6] Cleaning up temporary files..."
               rm -rf /tmp/easy-test
               echo "[6/6] Cleanup complete."
-              '
+
+              SCRIPT
