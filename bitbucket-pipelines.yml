@@ -4,11 +4,15 @@ pipelines:
   branches:
     master:
       - step:
-          name: Deploy to Production
+          name: Build & Deploy to Production
           deployment: production
           script:
+            # 安装 Docker（Bitbucket 标准 Runner 需要手动安装）
+            - apt-get update && apt-get install -y docker.io docker-compose-v2
+
             # 动态生成 .env 文件，从 Bitbucket Pipeline 加密变量读取
             - |
+              echo "[1/6] Generating .env file..."
               cat << 'ENVEOF' > .env
               MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
               MYSQL_DATABASE=$MYSQL_DATABASE
@@ -24,5 +28,97 @@ pipelines:
               JIRA_API_TOKEN=$JIRA_API_TOKEN
               LLM_API_KEY=$LLM_API_KEY
               ENVEOF
-            - scp -o StrictHostKeyChecking=no docker-compose.prod.yml Dockerfile.backend Dockerfile.frontend Dockerfile.nginx nginx.conf pyproject.toml .env $SSH_USER@$SSH_HOST:/easy-test/
-            - ssh $SSH_USER@$SSH_HOST 'set -euo pipefail; cd /easy-test; git pull origin master; docker compose -f docker-compose.prod.yml build backend frontend nginx celery_worker celery_beat; docker compose -f docker-compose.prod.yml up -d --remove-orphans; docker compose -f docker-compose.prod.yml run --rm backend alembic upgrade head'
+              echo "[1/6] .env generated successfully."
+
+            # 设置 SSH 私钥
+            - |
+              set +x
+              mkdir -p ~/.ssh
+              echo "$SSH_KEY" > ~/.ssh/id_rsa
+              chmod 600 ~/.ssh/id_rsa
+              set -x
+
+            # 在 Runner 本地构建镜像（服务器不需要连外网）
+            - |
+              echo "[2/6] Building Docker images..."
+              docker compose -f docker-compose.prod.yml build --pull backend frontend nginx celery_worker celery_beat
+              echo "[2/6] Docker images built successfully."
+
+            # 打包镜像为 tar 文件（只打包本次部署涉及的镜像）
+            - |
+              echo "[3/6] Packaging Docker images..."
+              docker save \
+                easy-test-backend:latest \
+                easy-test-frontend:latest \
+                easy-test-nginx:latest \
+                -o images.tar
+              echo "[3/6] Docker images packaged successfully."
+
+            # 压缩镜像包（加快传输速度）
+            - gzip -9 images.tar
+
+            # 把所有文件传到服务器（镜像包 + 部署配置）
+            - |
+              echo "[4/6] Uploading files to server ($SSH_HOST)..."
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
+                docker-compose.prod.yml \
+                Dockerfile.backend \
+                Dockerfile.frontend \
+                Dockerfile.nginx \
+                nginx.conf \
+                pyproject.toml \
+                .env \
+                images.tar.gz \
+                $SSH_USER@$SSH_HOST:/tmp/easy-test/
+              echo "[4/6] Files uploaded successfully."
+
+            # SSH 登录服务器执行部署
+            - ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$SSH_HOST 'set -euo pipefail
+
+              echo "[5/6] Stopping old containers..."
+              mkdir -p /easy-test
+              docker compose -f /tmp/easy-test/docker-compose.prod.yml down || true
+              echo "[5/6] Old containers stopped."
+
+              echo "[5/6] Loading Docker images..."
+              gunzip -c /tmp/easy-test/images.tar.gz | docker load
+              echo "[5/6] Docker images loaded."
+
+              echo "[5/6] Copying config files to deployment directory..."
+              cp /tmp/easy-test/docker-compose.prod.yml /easy-test/
+              cp /tmp/easy-test/Dockerfile.* /easy-test/
+              cp /tmp/easy-test/nginx.conf /easy-test/
+              cp /tmp/easy-test/pyproject.toml /easy-test/
+              cp /tmp/easy-test/.env /easy-test/
+              echo "[5/6] Config files copied."
+
+              echo "[5/6] Starting all services..."
+              docker compose -f /easy-test/docker-compose.prod.yml up -d --remove-orphans
+              echo "[5/6] All services started."
+
+              echo "[5/6] Waiting for backend to be healthy..."
+              timeout 120 bash -c "
+                while true; do
+                  status=$(docker inspect --format='"'"'{{.State.Health.Status}}'"'"' easy-test-backend 2>/dev/null || echo '"'"'starting'"'"')
+                  if [ "$status" = "healthy" ]; then
+                    break
+                  fi
+                  echo "  Backend status: $status, waiting..."
+                  sleep 5
+                done
+              " || echo "Warning: backend health check did not complete in time"
+              echo "[5/6] Backend is healthy."
+
+              echo "[6/6] Running database migrations..."
+              docker compose -f /easy-test/docker-compose.prod.yml exec -T backend alembic upgrade head
+              echo "[6/6] Database migrations complete."
+
+              echo ""
+              echo "========== Deployment Complete =========="
+              docker compose -f /easy-test/docker-compose.prod.yml ps
+              echo "========================================="
+
+              echo "[6/6] Cleaning up temporary files..."
+              rm -rf /tmp/easy-test
+              echo "[6/6] Cleanup complete."
+              '

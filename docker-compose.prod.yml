@@ -27,9 +27,6 @@ services:
     restart: unless-stopped
 
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
     image: easy-test-backend:latest
     environment:
       SECRET: ${SECRET}
@@ -40,14 +37,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     ports:
       - "8000:8000"
     restart: unless-stopped
 
   celery_worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
     image: easy-test-backend:latest
     command: ["celery", "-A", "app.celery_app.celery_app", "worker", "--loglevel=info"]
     environment:
@@ -62,9 +62,6 @@ services:
     restart: unless-stopped
 
   celery_beat:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
     image: easy-test-backend:latest
     command: ["celery", "-A", "app.celery_app.celery_app", "beat", "--loglevel=info"]
     environment:
@@ -79,9 +76,6 @@ services:
     restart: unless-stopped
 
   nginx:
-    build:
-      context: .
-      dockerfile: Dockerfile.nginx
     image: easy-test-nginx:latest
     depends_on:
       backend:
@@ -95,9 +89,6 @@ services:
     restart: unless-stopped
 
   frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
     image: easy-test-frontend:latest
     restart: unless-stopped
 
