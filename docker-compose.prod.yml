@@ -27,6 +27,9 @@ services:
     restart: unless-stopped
 
   backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
     image: easy-test-backend:latest
     environment:
       SECRET: ${SECRET}
@@ -48,6 +51,9 @@ services:
     restart: unless-stopped
 
   celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
     image: easy-test-backend:latest
     command: ["celery", "-A", "app.celery_app.celery_app", "worker", "--loglevel=info"]
     environment:
@@ -62,6 +68,9 @@ services:
     restart: unless-stopped
 
   celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
     image: easy-test-backend:latest
     command: ["celery", "-A", "app.celery_app.celery_app", "beat", "--loglevel=info"]
     environment:
