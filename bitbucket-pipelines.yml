@@ -24,25 +24,5 @@ pipelines:
               JIRA_API_TOKEN=$JIRA_API_TOKEN
               LLM_API_KEY=$LLM_API_KEY
               ENVEOF
-            - pipe: atmoz/sftp:2.0.0
-              variables:
-                SSH_USERNAME: $SSH_USER
-                SSH_SERVER: $SSH_HOST
-                SSH_KEY: $SSH_KEY
-                REMOTE_PATH: '/easy-test'
-                FILE_PATHS: |
-                  docker-compose.prod.yml
-                  Dockerfile.backend
-                  Dockerfile.frontend
-                  Dockerfile.nginx
-                  nginx.conf
-                  pyproject.toml
-                  .env
-            - >
-              ssh $SSH_USER@$SSH_HOST
-              'set -euo pipefail;
-              cd /easy-test;
-              git pull origin master;
-              docker compose -f docker-compose.prod.yml build backend frontend nginx celery_worker celery_beat;
-              docker compose -f docker-compose.prod.yml up -d --remove-orphans;
-              docker compose -f docker-compose.prod.yml run --rm backend alembic upgrade head'
+            - scp -o StrictHostKeyChecking=no docker-compose.prod.yml Dockerfile.backend Dockerfile.frontend Dockerfile.nginx nginx.conf pyproject.toml .env $SSH_USER@$SSH_HOST:/easy-test/
+            - ssh $SSH_USER@$SSH_HOST 'set -euo pipefail; cd /easy-test; git pull origin master; docker compose -f docker-compose.prod.yml build backend frontend nginx celery_worker celery_beat; docker compose -f docker-compose.prod.yml up -d --remove-orphans; docker compose -f docker-compose.prod.yml run --rm backend alembic upgrade head'
