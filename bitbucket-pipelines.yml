@@ -97,16 +97,16 @@ pipelines:
               echo "[5/6] All services started."
 
               echo "[5/6] Waiting for backend to be healthy..."
-              timeout 120 bash -c "
+              timeout 120 bash -c '
                 while true; do
-                  status=$(docker inspect --format='"'"'{{.State.Health.Status}}'"'"' easy-test-backend 2>/dev/null || echo '"'"'starting'"'"')
+                  status=$(docker inspect --format="{{{{.State.Health.Status}}}}" easy-test-backend 2>/dev/null || echo "starting")
                   if [ "$status" = "healthy" ]; then
                     break
                   fi
                   echo "  Backend status: $status, waiting..."
                   sleep 5
                 done
-              " || echo "Warning: backend health check did not complete in time"
+              ' || echo "Warning: backend health check did not complete in time"
               echo "[5/6] Backend is healthy."
 
               echo "[6/6] Running database migrations..."
