@@ -31,7 +31,6 @@ from contextlib import asynccontextmanager
 from sqlalchemy import select
 from fastapi.responses import JSONResponse
 from app.utils.logger import setup_logging, get_logger
-import os
 import logging
 from app.config import SECRET
 from fastapi_users.jwt import decode_jwt
@@ -64,9 +63,9 @@ async def lifespan(app: FastAPI):
     
     # 检查是否存在管理员用户
     async for db in get_db():
-        default_email = os.getenv("ADMIN_DEFAULT_EMAIL", "admin@qq.com")
-        default_password = os.getenv("ADMIN_DEFAULT_PASSWORD", "admin1234")
-        force_reset = os.getenv("FORCE_RESET_ADMIN_PASSWORD", "0") == "1"
+        default_email = "admin@qq.com"
+        default_password = "admin1234"
+        force_reset = False
         statement = select(User).where(User.email == default_email)
         result = await db.execute(statement)
         admin_user = result.scalar_one_or_none()

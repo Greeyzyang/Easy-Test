@@ -12,20 +12,42 @@ SECRET = os.getenv("SECRET", secrets.token_hex(32))
 # 自动选择 Redis：DATABASE_URL_PROD 存在时使用 redis:6379
 _REDIS_URL_PROD = os.getenv("REDIS_URL_PROD", "")
 REDIS_URL = _REDIS_URL_PROD if _REDIS_URL_PROD else os.getenv("REDIS_URL_DEV", "redis://localhost:6379/0")
-KB_PDF_PATH = os.getenv("KB_PDF_PATH", "app/Gino_product_specification.pdf")
 
-# SMTP邮件服务器配置
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.qiye.aliyun.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+# 服务器统一基础地址（前后端共用），用于推导 BACKEND_URL / VERIFY_BASE_URL / RESET_BASE_URL
+SERVER_BASE_URL = os.getenv("SERVER_BASE_URL", "http://localhost")
+_BACKEND_PORT = "8000"
+_FRONTEND_PORT = "9528"
+
+def _get_backend_url() -> str:
+    """从 SERVER_BASE_URL 推导后端地址（替换端口）"""
+    base = SERVER_BASE_URL.rstrip("/")
+    if base.startswith("http://"):
+        return f"http://{base[7:]}:{_BACKEND_PORT}"
+    elif base.startswith("https://"):
+        return f"https://{base[8:]}:{_BACKEND_PORT}"
+    return f"http://{base}:{_BACKEND_PORT}"
+
+def _get_frontend_url(path: str) -> str:
+    """从 SERVER_BASE_URL 推导前端带 hash 的 URL"""
+    base = SERVER_BASE_URL.rstrip("/")
+    if base.startswith("http://"):
+        return f"http://{base[7:]}:{_FRONTEND_PORT}/#/{path.lstrip('/')}"
+    elif base.startswith("https://"):
+        return f"https://{base[8:]}:{_FRONTEND_PORT}/#/{path.lstrip('/')}"
+    return f"http://{base}:{_FRONTEND_PORT}/#/{path.lstrip('/')}"
+
+BACKEND_URL = _get_backend_url()
+VERIFY_BASE_URL = _get_frontend_url("verify-email")
+RESET_BASE_URL = _get_frontend_url("reset-password")
+
+# 固定 SMTP 配置（公司邮箱服务地址，部署时无需改动）
+SMTP_SERVER = "smtp.qiye.aliyun.com"
+SMTP_PORT = 465
+SMTP_USE_TLS = False
+SMTP_USE_SSL = True
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USERNAME)
-SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
-SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() == "true"
-
-# 前端链接基址配置（避免硬编码 localhost）
-VERIFY_BASE_URL = os.getenv("VERIFY_BASE_URL", "http://localhost:9528/#/verify-email")
-RESET_BASE_URL = os.getenv("RESET_BASE_URL", "http://localhost:9528/#/reset-password")
+FROM_EMAIL = os.getenv("SMTP_USERNAME", "")
 
 from typing import Optional
 
@@ -34,35 +56,31 @@ class Settings:
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
 
-    # Jira Configuration
-    JIRA_URL: str = os.getenv("JIRA_URL", "")
+    # JIRA Configuration（地址和连接参数已固定，运行时通过 DB 覆盖）
+    JIRA_URL: str = "https://ginolt.atlassian.net/"
     JIRA_USER: str = os.getenv("JIRA_USER", "")
     JIRA_API_TOKEN: str = os.getenv("JIRA_API_TOKEN", "")
-    # 连接校验与证书配置（用于降低初始化时的报错与重试噪音）
-    JIRA_VALIDATE: bool = os.getenv("JIRA_VALIDATE", "false").lower() == "true"
-    JIRA_VERIFY: bool = os.getenv("JIRA_VERIFY", "true").lower() == "true"
+    JIRA_VALIDATE: bool = False
+    JIRA_VERIFY: bool = True
+    JIRA_TIMEOUT: int = 30
 
-    # LLM Configuration (Optimized for Doubao Model)
+    # LLM Configuration（API Key 必填，其余参数已固定）
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
-    LLM_API_BASE: str = os.getenv("LLM_API_BASE", "")
-    LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "")
-    
-    # Doubao Model Optimization Settings
-    LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "600"))
-    JIRA_TIMEOUT: int = int(os.getenv("JIRA_TIMEOUT", "30"))
-    MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
-    # 多模态分析开关（默认关闭，避免 Token 爆炸）
-    ENABLE_IMAGE_PROCESSING: bool = os.getenv("ENABLE_IMAGE_PROCESSING", "false").lower() == "true"
-    # 最大附件处理大小（MB），默认 5MB
-    MAX_ATTACHMENT_SIZE_MB: int = int(os.getenv("MAX_ATTACHMENT_SIZE_MB", "5"))
-    
-    # Doubao-specific LLM Settings
-    BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
-    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "8000"))
-    LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.3"))
-    DOUBAO_SIMPLE_MODE: bool = os.getenv("DOUBAO_SIMPLE_MODE", "true").lower() == "true"
+    LLM_API_BASE: str = "https://open.bigmodel.cn/api/paas/v4"
+    LLM_MODEL_NAME: str = "glm-5"
+    LLM_TIMEOUT: int = 600
+    LLM_MAX_TOKENS: int = 8000
+    LLM_TEMPERATURE: float = 0.3
 
-    JIRA_COMPONENTS_XLSX_PATH: Optional[str] = os.getenv("JIRA_COMPONENTS_XLSX_PATH", "app/components.xlsx")
+    # 内部行为参数
+    MAX_RETRIES: int = 3
+    ENABLE_IMAGE_PROCESSING: bool = False
+    KB_PDF_PATH: Optional[str] = "app/Gino_product_specification.pdf"
+
+    # Frontend Base URLs
+    BACKEND_URL: str = BACKEND_URL
+    VERIFY_BASE_URL: str = VERIFY_BASE_URL
+    RESET_BASE_URL: str = RESET_BASE_URL
 
     # SMTP Email Configuration
     SMTP_SERVER: str = SMTP_SERVER
@@ -72,13 +90,6 @@ class Settings:
     FROM_EMAIL: str = FROM_EMAIL
     SMTP_USE_TLS: bool = SMTP_USE_TLS
     SMTP_USE_SSL: bool = SMTP_USE_SSL
-
-    # Frontend Base URLs
-    VERIFY_BASE_URL: str = VERIFY_BASE_URL
-    RESET_BASE_URL: str = RESET_BASE_URL
-
-    # Knowledge Base PDF Path
-    KB_PDF_PATH: Optional[str] = KB_PDF_PATH
 
     class Config:
         env_file = ".env"

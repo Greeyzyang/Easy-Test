@@ -7,6 +7,23 @@ pipelines:
           name: Deploy to Production
           deployment: production
           script:
+            # 动态生成 .env 文件，从 Bitbucket Pipeline 加密变量读取
+            - |
+              cat << 'ENVEOF' > .env
+              MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
+              MYSQL_DATABASE=$MYSQL_DATABASE
+              MYSQL_USER=$MYSQL_USER
+              MYSQL_PASSWORD=$MYSQL_PASSWORD
+              DATABASE_URL_PROD=$DATABASE_URL_PROD
+              REDIS_URL_PROD=$REDIS_URL_PROD
+              SECRET=$SECRET
+              SERVER_BASE_URL=$SERVER_BASE_URL
+              SMTP_USERNAME=$SMTP_USERNAME
+              SMTP_PASSWORD=$SMTP_PASSWORD
+              JIRA_USER=$JIRA_USER
+              JIRA_API_TOKEN=$JIRA_API_TOKEN
+              LLM_API_KEY=$LLM_API_KEY
+              ENVEOF
             - pipe: atmoz/sftp:2.0.0
               variables:
                 SSH_USERNAME: $SSH_USER
@@ -15,16 +32,17 @@ pipelines:
                 REMOTE_PATH: '/easy-test'
                 FILE_PATHS: |
                   docker-compose.prod.yml
-                  .env
                   Dockerfile.backend
                   Dockerfile.frontend
                   Dockerfile.nginx
                   nginx.conf
-            - ssh $SSH_USER@$SSH_HOST '
-              set -euo pipefail
-              cd /easy-test
-              git pull origin master
-              docker compose -f docker-compose.prod.yml build backend frontend nginx celery_worker celery_beat
-              docker compose -f docker-compose.prod.yml up -d --remove-orphans
-              docker compose -f docker-compose.prod.yml run --rm backend alembic upgrade head
-            '
+                  pyproject.toml
+                  .env
+            - >
+              ssh $SSH_USER@$SSH_HOST
+              'set -euo pipefail;
+              cd /easy-test;
+              git pull origin master;
+              docker compose -f docker-compose.prod.yml build backend frontend nginx celery_worker celery_beat;
+              docker compose -f docker-compose.prod.yml up -d --remove-orphans;
+              docker compose -f docker-compose.prod.yml run --rm backend alembic upgrade head'

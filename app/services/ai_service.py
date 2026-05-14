@@ -41,25 +41,35 @@ _GLOBAL_KB_STORE = None
 
 class AIService:
     def __init__(self):
-        # 使用 options + validate 控制初始化行为，避免不可达时的持续重试报警
-        self.jira_client = JIRA(
-            options={
-                "server": settings.JIRA_URL,
-                "verify": settings.JIRA_VERIFY
-            },
-            basic_auth=(settings.JIRA_USER, settings.JIRA_API_TOKEN),
-            timeout=settings.JIRA_TIMEOUT,  # 使用配置中的超时时间
-            max_retries=settings.MAX_RETRIES,  # 使用配置中的重试次数
-            validate=settings.JIRA_VALIDATE  # 避免初始化时访问 serverInfo 导致重复告警
-        )
-        # 初始化为空，使用时动态获取
+        self._jira_client = None
         self._llm_client = None
         self._current_model_id = None
         self._current_model_name = None
 
         self._kb_store = None
         self._kb_path = settings.KB_PDF_PATH
-        # KB（知识库）相关：RAG 使用的 PDF 路径与向量索引缓存
+
+    def _get_jira_client(self):
+        """
+        延迟初始化 Jira 客户端，仅在首次使用时创建连接。
+        避免应用启动时就访问 Jira，提升启动速度并允许离线启动。
+        """
+        if self._jira_client is None:
+            self._jira_client = JIRA(
+                options={
+                    "server": settings.JIRA_URL,
+                    "verify": settings.JIRA_VERIFY
+                },
+                basic_auth=(settings.JIRA_USER, settings.JIRA_API_TOKEN),
+                timeout=settings.JIRA_TIMEOUT,
+                max_retries=settings.MAX_RETRIES,
+                validate=settings.JIRA_VALIDATE
+            )
+        return self._jira_client
+
+    @property
+    def jira_client(self):
+        return self._get_jira_client()
 
     def _get_llm_client(self):
         """
