@@ -52,7 +52,7 @@
 </template>
 
 <script>
-import { register, requestVerifyToken } from '@/api/user'
+import { register } from '@/api/user'
 import { validateEmail } from '@/utils/validate'
 
 export default {
@@ -101,35 +101,52 @@ export default {
         if (valid) {
           this.loading = true
           register(this.registerForm)
-            .then(() => {
-              // 注册成功后尝试发送验证邮件（失败则仅提示，不影响整体流程）
-              return requestVerifyToken(this.registerForm.email)
-                .then(() => {
-                  this.$message({
-                    message: '注册成功，验证邮件已发送，请前往邮箱完成验证',
-                    type: 'success',
-                    duration: 3000
-                  })
-                })
-                .catch(() => {
-                  this.$message({
-                    message: '注册成功，但发送验证邮件失败，请稍后在登录页重试',
-                    type: 'warning',
-                    duration: 3000
-                  })
-                })
-            })
-            .then(() => {
-              this.$router.push('/login')
+            .then((res) => {
               this.loading = false
+              const emailSent = res?.data?.email_sent !== false
+              if (emailSent) {
+                this.$confirm(
+                  '注册成功！验证邮件已发送到您的邮箱，请点击邮件中的链接完成验证后再登录。',
+                  '注册成功',
+                {
+                  confirmButtonText: '好的，我先去验证邮箱',
+                  cancelButtonText: '留在当前页',
+                  type: 'success',
+                  showClose: false,
+                  closeOnClickModal: false
+                }
+              ).then(() => {
+                // 引导用户去邮箱验证，不跳转登录页
+              }).catch(() => {
+                // 用户留在当前页，不做跳转
+              })
+              } else {
+                this.$confirm(
+                  '账号创建成功！但验证邮件发送失败（可能未送达或被拦截），如果您未收到邮件，可以稍后在登录页点击"重发验证邮件"。',
+                  '注册成功',
+                  {
+                    confirmButtonText: '我知道了',
+                    showCancelButton: false,
+                    type: 'warning',
+                    showClose: false,
+                    closeOnClickModal: false
+                  }
+                ).catch(() => {})
+              }
             })
             .catch((err) => {
-              this.$message({
-                message: (err && err.message) ? `注册失败：${err.message}` : '注册失败，请稍后重试',
-                type: 'error',
-                duration: 3000
-              })
               this.loading = false
+              let msg = '注册失败，请稍后重试'
+              if (err && err.data && err.data.detail) {
+                msg = err.data.detail
+              } else if (err && err.message) {
+                msg = err.message
+              }
+              this.$message({
+                message: msg,
+                type: 'error',
+                duration: 5000
+              })
             })
         } else {
           return false

@@ -10,7 +10,7 @@ class Testreport(Base):
     id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), index=True, info={"description": "报告名称"})
     description = Column(String(255), nullable=True, info={"description": "报告描述"})
-    testsuite_id = Column(CHAR(36), ForeignKey("testsuites.id", ondelete="CASCADE"), nullable=False, info={"description": "关联的测试套件ID"})
+    testsuite_id = Column(CHAR(36), ForeignKey("testsuites.id", ondelete="CASCADE"), nullable=False, index=True, info={"description": "关联的测试套件ID"})
     status = Column(Enum(TestStatus), default=TestStatus.PENDING, info={"description": "报告状态"})
     start_time = Column(DateTime, nullable=True, info={"description": "开始时间"})
     end_time = Column(DateTime, nullable=True, info={"description": "结束时间"})
@@ -29,9 +29,9 @@ class ExecutionDetail(Base):
     __tablename__ = 'execution_details'
 
     id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    testreport_id = Column(CHAR(36), ForeignKey("testreports.id"), nullable=False, info={"description": "关联的测试报告ID"})
-    testcase_id = Column(CHAR(36), ForeignKey("testcases.id"), nullable=False, info={"description": "关联的测试用例ID"})
-    step_id = Column(CHAR(36), ForeignKey("teststeps.id"), nullable=False, info={"description": "关联的测试步骤ID"})
+    testreport_id = Column(CHAR(36), ForeignKey("testreports.id"), nullable=False, index=True, info={"description": "关联的测试报告ID"})
+    testcase_id = Column(CHAR(36), ForeignKey("testcases.id"), nullable=False, index=True, info={"description": "关联的测试用例ID"})
+    step_id = Column(CHAR(36), ForeignKey("teststeps.id"), nullable=False, index=True, info={"description": "关联的测试步骤ID"})
     step_name = Column(String(255), nullable=False, info={"description": "步骤名称"})
     status = Column(Enum(TestStepStatus), default=TestStepStatus.PENDING, info={"description": "执行状态"})
     start_time = Column(DateTime, nullable=True, info={"description": "开始时间"})

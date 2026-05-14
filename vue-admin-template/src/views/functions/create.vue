@@ -52,7 +52,7 @@ import RunFunctionDialog from './components/RunFunctionDialog'
 export default {
   name: 'FunctionCreate',
   components: {
-    MonacoEditor,
+    MonacoEditor: () => import('@/components/Editor/MonacoEditor'),
     RunFunctionDialog
   },
   data() {

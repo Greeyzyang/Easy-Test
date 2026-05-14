@@ -10,7 +10,7 @@ class Module(Base):
 
     id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), index=True, info={"description": "模块名称"})
-    project_id = Column(CHAR(36), ForeignKey("projects.id"))
+    project_id = Column(CHAR(36), ForeignKey("projects.id"), index=True)
     description = Column(Text, nullable=True, info={"description": "模块描述"})
     
     project = relationship("Project", back_populates="modules")

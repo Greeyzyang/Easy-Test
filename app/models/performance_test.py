@@ -10,8 +10,8 @@ class PerformanceTest(Base):
 
     name = Column(String(255), nullable=False, index=True)
     description = Column(String(255), nullable=True)
-    project_id = Column(CHAR(36), ForeignKey("projects.id"), nullable=False)
-    status = Column(Enum(TestStatus), default=TestStatus.PENDING)
+    project_id = Column(CHAR(36), ForeignKey("projects.id"), nullable=False, index=True)
+    status = Column(Enum(TestStatus), default=TestStatus.PENDING, index=True)
 
     concurrent_users = Column(Integer, nullable=False, default=10)
     run_mode = Column(String(20), default="duration")
@@ -25,7 +25,7 @@ class PerformanceTest(Base):
 
     request_config = Column(JSON, nullable=True)
 
-    created_by = Column(CHAR(36), ForeignKey("users.id"), nullable=True)
+    created_by = Column(CHAR(36), ForeignKey("users.id"), nullable=True, index=True)
 
     project = relationship("Project", back_populates="performance_tests")
     reports = relationship("PerformanceTestReport", back_populates="performance_test", cascade="all, delete-orphan")

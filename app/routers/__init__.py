@@ -12,6 +12,7 @@ from .metrics import router as metrics_router
 from .ai_models import router as ai_models_router
 from .mcp_servers import router as mcp_servers_router
 from .performance_tests import router as performance_tests_router
+from .tencent_docs import router as tencent_docs_router
 
 __all__ = [
     "projects_router",
@@ -27,5 +28,6 @@ __all__ = [
     "metrics_router",
     "ai_models_router",
     "mcp_servers_router",
-    "performance_tests_router"
+    "performance_tests_router",
+    "tencent_docs_router",
 ]

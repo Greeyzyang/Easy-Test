@@ -5,9 +5,13 @@ from dotenv import load_dotenv
 # 加载环境变量
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "mysql+aiomysql://root:root@localhost/test_platform")
+# 自动选择数据库：DATABASE_URL_PROD 优先（Docker环境），否则用 DATABASE_URL_DEV（本地）
+_DATABASE_URL_PROD = os.getenv("DATABASE_URL_PROD", "")
+DATABASE_URL = _DATABASE_URL_PROD if _DATABASE_URL_PROD else os.getenv("DATABASE_URL_DEV", "mysql+aiomysql://root:root@localhost/test_platform")
 SECRET = os.getenv("SECRET", secrets.token_hex(32))
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# 自动选择 Redis：DATABASE_URL_PROD 存在时使用 redis:6379
+_REDIS_URL_PROD = os.getenv("REDIS_URL_PROD", "")
+REDIS_URL = _REDIS_URL_PROD if _REDIS_URL_PROD else os.getenv("REDIS_URL_DEV", "redis://localhost:6379/0")
 KB_PDF_PATH = os.getenv("KB_PDF_PATH", "app/Gino_product_specification.pdf")
 
 # SMTP邮件服务器配置

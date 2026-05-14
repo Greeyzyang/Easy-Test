@@ -8,16 +8,14 @@ from app.models.user import User
 from app.models.base_model import Base
 from app.utils.logger import get_logger
 import json
-from passlib.context import CryptContext
+from app.utils.password import pwd_context
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, Session
 import asyncio
 
 # 设置日志
 logger = get_logger(__name__)
-
-# 创建密码哈希工具
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 # 创建一个自定义的 SQLAlchemyUserDatabase 类，处理各种参数
 class CustomSQLAlchemyUserDatabase(SQLAlchemyUserDatabase):
@@ -104,6 +102,13 @@ class CustomSQLAlchemyUserDatabase(SQLAlchemyUserDatabase):
                 logger.error("数据库提交或刷新超时")
                 await self.session.rollback()
                 raise HTTPException(status_code=504, detail="数据库操作超时")
+            except IntegrityError as e:
+                logger.warning(f"数据库唯一约束冲突: {str(e)}")
+                await self.session.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail="该邮箱已被注册，请直接登录或使用忘记密码功能"
+                )
             except Exception as e:
                 logger.exception(f"数据库操作出错(异步路径): {str(e)}")
                 await self.session.rollback()

@@ -1,16 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
-
-
-class ExtractVariableConfig(BaseModel):
-    name: str = Field(..., description="变量名")
-    source: str = Field(default="response", description="数据来源: response / headers / cookies / body")
-    path: str = Field(..., description="提取路径，response支持jsonpath，其他为key名")
-    description: Optional[str] = Field(None, description="变量描述")
-
-    class Config:
-        from_attributes = True
+from .base_schemas import ExtractVariableConfig
 
 
 class PerformanceStepSchema(BaseModel):

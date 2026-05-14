@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
-from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal, List
 from datetime import datetime
+from enum import Enum
 
 class TestStepStatus(str, Enum):
     PENDING = "PENDING"
@@ -53,7 +53,40 @@ class ExtractVariableConfig(BaseModel):
     description: Optional[str] = Field(None, description="变量描述")
 
     class Config:
-        from_attributes = True 
+        from_attributes = True
+
+
+class TestcaseInSuite(BaseModel):
+    """在测试套件中使用的简化测试用例信息"""
+    id: str
+    name: str
+    description: Optional[str] = None
+    status: TestcaseStatus
+    priority: Optional[int] = None
+    steps_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class JsonValueAssertionRule(BaseModel):
+    """表示一个单一的断言规则"""
+    source: VariableSource = Field(default=VariableSource.RESPONSE, description="断言来源")
+    path: Optional[str] = Field(default=None, description="JSONPath 表达式 (RESPONSE/BODY) 或 Header Key (HEADERS)")
+    value: Any = Field(None, description="预期值")
+    operator: Literal[
+        "equal", "not_equal", "contains", "not_contains",
+        "greater_than", "less_than", "greater_or_equal", "less_or_equal",
+        "exists", "not_exists",
+        "length_equal", "length_not_equal", "length_greater_than", "length_less_than",
+        "length_greater_or_equal", "length_less_or_equal",
+        "is_array", "is_dict", "is_string", "is_number", "is_boolean", "is_null", "not_null"
+    ] = Field(..., description="比较操作符")
+    description: Optional[str] = Field(None, description="断言描述")
+
+    class Config:
+        from_attributes = True
+
 
 class BaseInterface(BaseModel):
     """接口基础信息"""

@@ -43,6 +43,8 @@
 
       <el-button :loading="loading" type="primary" style="width:100%;margin-bottom:30px;" @click.native.prevent="handleLogin">登录</el-button>
 
+      <el-button v-if="showResend" type="text" :loading="resendLoading" style="width:100%;margin-bottom:30px;color:#67C23A;" @click="handleResendVerify">未收到验证邮件？点此重发</el-button>
+
       <div style="display:flex;justify-content:space-between;margin-bottom:30px;">
         <router-link to="/register" class="link-type">注册账号</router-link>
         <router-link to="/forgot-password" class="link-type">忘记密码？</router-link>
@@ -54,6 +56,7 @@
 
 <script>
 import { validateEmail } from '@/utils/validate'
+import { requestVerifyToken } from '@/api/user'
 
 export default {
   name: 'Login',
@@ -85,7 +88,9 @@ export default {
       },
       loading: false,
       passwordType: 'password',
-      redirect: undefined
+      redirect: undefined,
+      showResend: false,
+      resendLoading: false
     }
   },
   watch: {
@@ -108,6 +113,7 @@ export default {
       })
     },
     handleLogin() {
+      this.showResend = false  // 每次登录尝试隐藏重发按钮
       this.$refs.loginForm.validate(valid => {
         if (valid) {
           this.loading = true
@@ -125,20 +131,46 @@ export default {
             })
             this.$router.push({ path: this.redirect || '/dashboard' })
             this.loading = false
-          }).catch(error => {
+          })          .catch(error => {
             console.error('登录失败:', error)
-            this.$message({
-              message: error.message || '登录失败',
-              type: 'error',
-              duration: 2000
-            })
             this.loading = false
+            const detail = error?.data?.detail || error?.message || '登录失败'
+            this.$message({
+              message: detail,
+              type: 'error',
+              duration: 3000
+            })
+            // 403=未验证邮箱，显示重发按钮
+            if (error?.status === 403) {
+              this.showResend = true
+            }
           })
         } else {
           console.log('error submit!!')
           return false
         }
       })
+    },
+    handleResendVerify() {
+      this.resendLoading = true
+      requestVerifyToken(this.loginForm.email)
+        .then(() => {
+          this.$message({
+            message: '验证邮件已重新发送，请查收',
+            type: 'success',
+            duration: 4000
+          })
+        })
+        .catch(err => {
+          this.$message({
+            message: (err?.data?.detail) || '重发失败，请稍后重试',
+            type: 'error',
+            duration: 3000
+          })
+        })
+        .finally(() => {
+          this.resendLoading = false
+        })
     }
   }
 }

@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
 from .teststep import TestStepCreate, TestStepInTestcase, TestStepDetail
-from app.schemas.base_schemas import TestcaseStatus
+from app.schemas.base_schemas import TestcaseInSuite
 from datetime import datetime
 
 class TestcaseBase(BaseModel):
@@ -28,15 +28,6 @@ class TestcaseCreate(TestcaseBase):
 class TestcaseUpdate(TestcaseBase):
     steps: Optional[List[TestStepCreate]] = None
 
-class TestcaseInSuite(TestcaseBase):
-    """在测试集中使用的测试用例信息"""
-    id: str
-    status: TestcaseStatus
-    priority: int
-    steps_count: int
-
-    class Config:
-        from_attributes = True
 
 class ModuleSimple(BaseModel):
     id: str

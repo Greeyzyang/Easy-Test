@@ -1,0 +1,43 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - img [ref=e5]
+    - img [ref=e7]
+    - generic [ref=e8]:
+      - list
+      - generic [ref=e9]:
+        - link [ref=e10] [cursor=pointer]:
+          - /url: javascript:void(0)
+        - link [ref=e11] [cursor=pointer]:
+          - /url: javascript:void(0)
+    - generic [ref=e12]:
+      - img [ref=e15]
+      - generic [ref=e17]:
+        - list [ref=e18]:
+          - listitem [ref=e19]:
+            - generic [ref=e20]:
+              - generic [ref=e21]:
+                - generic [ref=e22]:
+                  - generic [ref=e23]:
+                    - generic [ref=e24]: adresse email
+                    - textbox "adresse email" [ref=e26]
+                  - generic [ref=e27]:
+                    - generic [ref=e28]: mot de passe
+                    - textbox "mot de passe" [ref=e30]
+                - button "se connecter" [disabled] [ref=e32]
+              - link "mot de passe oublié ?" [ref=e33] [cursor=pointer]:
+                - /url: /password/forgot/
+        - generic [ref=e34]: ou
+        - list [ref=e36]:
+          - listitem [ref=e37]:
+            - link "Se connecter avec Google" [ref=e39] [cursor=pointer]:
+              - /url: /login/google/
+              - generic [ref=e42]:
+                - img [ref=e45]
+                - generic [ref=e52]: Se connecter avec Google
+          - listitem [ref=e53]:
+            - link "Se connecter avec Microsoft" [ref=e55] [cursor=pointer]:
+              - /url: /login/ms/
+              - generic [ref=e58]:
+                - img [ref=e61]
+                - generic [ref=e66]: Se connecter avec Microsoft
+  - generic [ref=e67]: © Gino LegalTech 2026 Tous droits réservés

@@ -69,7 +69,8 @@ const actions = {
     return new Promise((resolve, reject) => {
       getInfo().then(response => {
         const res = response
-        const userData = (res && res.data) ? res.data : res
+        // 兼容两种响应格式：直接返回用户对象 或 {data: {...}}
+        const userData = (res && res.data && res.data.email) ? res.data : res
         if (!userData || !userData.email) {
           reject('Verification failed, please Login again.')
           return

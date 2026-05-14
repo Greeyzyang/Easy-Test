@@ -24,10 +24,10 @@ class Testsuite(Base):
     id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), index=True, info={"description": "测试集名称"})
     description = Column(String(255), nullable=True, info={"description": "测试集描述"})
-    cron_expression = Column(String(255), nullable=True, info={"description": "Cron 表达式"})
+    cron_expression = Column(String(255), nullable=True, index=True, info={"description": "Cron 表达式"})
     env_name = Column(String(255), nullable=True, info={"description": "环境变量名"})
     headers = Column(JSON, nullable=True, info={"description": "公共请求头"})
-    project_id = Column(CHAR(36), ForeignKey("projects.id"), nullable=True, info={"description": "项目ID"})
+    project_id = Column(CHAR(36), ForeignKey("projects.id"), nullable=True, index=True, info={"description": "项目ID"})
     
     project = relationship("Project", back_populates="testsuites")
     

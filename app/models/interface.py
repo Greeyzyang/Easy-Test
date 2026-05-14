@@ -32,7 +32,7 @@ class Interface(Base):
     body_schema = Column(JSON, nullable=True, info={"description": "请求体结构定义"})
     
     # 添加外键字段
-    module_id = Column(CHAR(36), ForeignKey("modules.id"), info={"description": "所属模块ID"})
+    module_id = Column(CHAR(36), ForeignKey("modules.id"), index=True, info={"description": "所属模块ID"})
     
     module = relationship("Module", back_populates="interfaces", info={"description": "所属模块"})
     steps = relationship("TestStep", back_populates="interface")

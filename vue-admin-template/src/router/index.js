@@ -296,13 +296,18 @@ export const constantRoutes = [
         name: 'AIAssistant',
         component: () => import('@/views/assistant/index'),
         meta: { title: '测试用例', icon: 'el-icon-magic-stick' }
-      }
-      ,
+      },
       {
         path: 'kb',
         name: 'AIKnowledgeBase',
         component: () => import('@/views/assistant/kb'),
         meta: { title: '知识库', icon: 'el-icon-document' }
+      },
+      {
+        path: 'tencent-docs',
+        name: 'TencentDocsConvert',
+        component: () => import('@/views/tencent-docs/index'),
+        meta: { title: '用例转换', icon: 'el-icon-document-copy' }
       }
     ]
   },

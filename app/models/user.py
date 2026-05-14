@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi_users_db_sqlalchemy import SQLAlchemyBaseUserTable
 import uuid
 import json
-from passlib.context import CryptContext
+from app.utils.password import pwd_context
 from sqlalchemy.orm import relationship
 from .base_model import Base
 
@@ -33,10 +33,7 @@ class User(SQLAlchemyBaseUserTable, Base):
         return permission in perms
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
     return pwd_context.verify(plain_password, hashed_password)
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)

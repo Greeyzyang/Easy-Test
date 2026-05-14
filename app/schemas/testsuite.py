@@ -1,20 +1,7 @@
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from .base_schemas import TestcaseStatus
-
-
-
-class TestcaseInSuite(BaseModel):
-    """在测试套件中使用的简化测试用例信息"""
-    id: str
-    name: str
-    description: Optional[str] = None
-    status: TestcaseStatus
-    steps_count: int
-
-    class Config:
-        from_attributes = True
+from app.schemas.base_schemas import TestcaseStatus, TestcaseInSuite
 
 class TestsuiteBase(BaseModel):
     name: str

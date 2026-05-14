@@ -8,8 +8,8 @@ from app.schemas.base_schemas import TestStatus
 class PerformanceTestReport(Base):
     __tablename__ = "load_test_reports"
 
-    performance_test_id = Column(CHAR(36), ForeignKey("load_tests.id", ondelete="CASCADE"), nullable=False)
-    status = Column(Enum(TestStatus), default=TestStatus.IN_PROGRESS)
+    performance_test_id = Column(CHAR(36), ForeignKey("load_tests.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(Enum(TestStatus), default=TestStatus.IN_PROGRESS, index=True)
 
     start_time = Column(DateTime, nullable=True)
     end_time = Column(DateTime, nullable=True)

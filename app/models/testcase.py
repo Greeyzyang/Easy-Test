@@ -21,7 +21,7 @@ class Testcase(Base):
     name = Column(String(255), index=True, info={"description": "测试用例名称"})
     description = Column(Text, nullable=True, info={"description": "测试用例描述"})
     priority = Column(Integer, default=0, info={"description": "用例优先级"})
-    module_id = Column(CHAR(36), ForeignKey("modules.id"), nullable=True, info={"description": "所属模块"})
+    module_id = Column(CHAR(36), ForeignKey("modules.id"), nullable=True, index=True, info={"description": "所属模块"})
     tags = Column(JSON, nullable=True, info={"description": "用例标签"})
     setup = Column(Text, nullable=True, info={"description": "用例前置条件"})
     teardown = Column(Text, nullable=True, info={"description": "用例后置处理"})

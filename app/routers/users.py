@@ -9,6 +9,7 @@ from fastapi_users.authentication import (
     BearerTransport,
 )
 from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
+from pymysql.err import IntegrityError
 from app.config import SECRET
 from app.database import User, get_user_db, CustomSQLAlchemyUserDatabase, get_db
 from app.schemas.user import UserCreate, UserRead, UserUpdate
@@ -41,6 +42,13 @@ class UserManager(BaseUserManager[User, str]):
 
     def parse_id(self, value: any) -> str:
         return str(value)
+
+    async def authenticate(self, credentials) -> Optional[User]:
+        user = await super().authenticate(credentials)
+        if user and not user.is_verified:
+            logger.warning(f"用户 {user.id} ({user.email}) 未验证邮箱，拒绝登录")
+            return None
+        return user
 
     async def validate_password(self, password: str, hashed_password: Optional[str] = None) -> bool:
         if hashed_password:
@@ -121,10 +129,10 @@ class UserManager(BaseUserManager[User, str]):
                     except Exception:
                         user_dict["username"] = email
                 else:
-                    # 如果没有邮箱（不太可能），生成一个随机用户名
                     user_dict["username"] = f"user_{uuid.uuid4().hex[:8]}"
-            
-            # 添加额外字段（如果需要）
+
+            # 注册时设为 active，让用户可以登录
+            # 验证邮箱后 is_verified 才会为 True
             if "is_active" not in user_dict:
                 user_dict["is_active"] = True
             if "is_verified" not in user_dict:
@@ -139,6 +147,12 @@ class UserManager(BaseUserManager[User, str]):
                 logger.info(f"用户创建成功! ID: {created_user.id if created_user else 'Unknown'}")
                 await self.on_after_register(created_user, request)
                 return created_user
+            except IntegrityError as e:
+                logger.warning(f"注册失败，邮箱已存在: {str(e)}")
+                raise HTTPException(
+                    status_code=409,
+                    detail="该邮箱已注册，请直接登录或使用忘记密码功能"
+                )
             except Exception as e:
                 logger.exception(f"调用数据库创建用户时出错: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"创建用户失败: {str(e)}")
@@ -151,9 +165,27 @@ class UserManager(BaseUserManager[User, str]):
             else:
                 raise HTTPException(status_code=500, detail=f"创建用户失败: {str(e)}")
 
-    async def on_after_register(self, user: User, request: Optional[Request] = None):
-        logger.info(f"用户 {user.id} ({user.email}) 已注册成功, 待邮箱验证.")
-        # 保持此处不发送欢迎邮件，待验证通过后由用户自行触发或后续扩展
+    async def on_after_register(self, user: User, request: Optional[Request] = None) -> bool:
+        logger.info(f"用户 {user.id} ({user.email}) 已注册成功, 准备发送验证邮件.")
+        try:
+            from fastapi_users.manager import generate_jwt, VERIFY_USER_TOKEN_AUDIENCE
+            token = generate_jwt(
+                {"sub": user.id, "email": user.email, "aud": [VERIFY_USER_TOKEN_AUDIENCE]},
+                SECRET,
+                lifetime_seconds=3600 * 24,
+            )
+            email_service = EmailService()
+            ok = await email_service.send_verification_email(
+                to_email=user.email, username=user.email, token=token
+            )
+            if ok:
+                logger.info(f"注册验证邮件已发送 -> {user.email}")
+            else:
+                logger.warning(f"注册验证邮件发送失败（邮件服务可能不可用） -> {user.email}")
+            return ok
+        except Exception as e:
+            logger.error(f"注册验证邮件发送异常: {e}")
+            return False
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Optional[Request] = None
@@ -171,19 +203,45 @@ class UserManager(BaseUserManager[User, str]):
         except Exception as e:
             logger.error(f"发送密码重置邮件失败: {e}")
 
+    async def verify(self, token: str, request: Optional[Request] = None) -> User:
+        """Override verify to add logging"""
+        logger.info(f"收到邮箱验证请求, token长度: {len(token)}")
+        try:
+            user = await super().verify(token, request)
+            logger.info(f"邮箱验证成功, 用户: {user.id} ({user.email}), is_verified={user.is_verified}")
+            return user
+        except Exception as e:
+            logger.error(f"邮箱验证失败: {type(e).__name__}: {e}")
+            raise
+
     async def on_after_request_verify(
         self, user: User, token: str, request: Optional[Request] = None
     ):
         logger.info(f"为用户 {user.id} 请求验证. 验证令牌: {token}")
         try:
             email_service = EmailService()
-            asyncio.create_task(
-                email_service.send_verification_email(
-                    to_email=user.email, username=user.email, token=token
-                )
+            ok = await email_service.send_verification_email(
+                to_email=user.email, username=user.email, token=token
             )
+            if ok:
+                logger.info(f"邮箱验证邮件发送成功 -> {user.email}")
+            else:
+                logger.warning(f"邮箱验证邮件发送返回 False（可能未投递） -> {user.email}")
         except Exception as e:
             logger.error(f"发送邮箱验证邮件失败: {e}")
+
+    async def on_after_verify(
+        self, user: User, request: Optional[Request] = None
+    ) -> None:
+        logger.info(f"用户 {user.id} ({user.email}) 邮箱验证成功")
+
+    async def on_after_login(
+        self,
+        user: User,
+        request: Optional[Request] = None,
+        safe: bool = False,
+    ):
+        logger.info(f"用户 {user.id} ({user.email}) 登录成功")
 
 
 async def get_user_db(session: AsyncSession = Depends(get_db)):
@@ -191,7 +249,8 @@ async def get_user_db(session: AsyncSession = Depends(get_db)):
     yield db
 
 async def get_user_manager(user_db: SQLAlchemyUserDatabase = Depends(get_user_db)):
-    yield UserManager(user_db)
+    from fastapi_users.password import PasswordHelper
+    yield UserManager(user_db, password_helper=PasswordHelper(context=pwd_context))
 
 # FastAPI Users 实例
 fastapi_users = FastAPIUsers[User, str](
@@ -214,5 +273,5 @@ __all__ = [
     "get_user_manager",
     "current_active_user",
     "current_superuser",
-    "router"
+    "router",
 ]

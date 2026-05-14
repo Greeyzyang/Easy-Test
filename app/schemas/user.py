@@ -47,3 +47,9 @@ class TokenData(BaseModel):
 
 class UserPermissionUpdate(BaseModel):
     permissions: List[str]
+
+
+class RegisterResponse(BaseModel):
+    user_id: str
+    email: str
+    email_sent: bool

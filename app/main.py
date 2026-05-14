@@ -14,7 +14,8 @@ from app.routers import (
     metrics_router,
     ai_models_router,
     mcp_servers_router,
-    performance_tests_router
+    performance_tests_router,
+    tencent_docs_router,
 )
 from app.utils.exceptions import http_exception_handler
 from app.schemas.user import UserCreate, UserRead, UserUpdate
@@ -23,7 +24,7 @@ from app.routers.users import (
     fastapi_users,
     get_user_manager,
     current_active_user,
-    UserManager
+    UserManager,
 )
 from app.database import User, create_db_and_tables, get_db
 from contextlib import asynccontextmanager
@@ -154,6 +155,7 @@ app.include_router(metrics_router)
 app.include_router(ai_models_router)
 app.include_router(mcp_servers_router)
 app.include_router(performance_tests_router)
+app.include_router(tencent_docs_router)
 # 将 Bearer 认证挂载到标准 /auth/jwt 路径，统一登录接口
 # 之前的 cookie_auth_backend 已被移除，因为前端统一使用 Bearer Token
 app.include_router(fastapi_users.get_auth_router(bearer_auth_backend), prefix="/auth/jwt", tags=["auth"])

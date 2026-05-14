@@ -10,8 +10,8 @@ class TestStep(Base):
     id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), index=True, info={"description": "步骤名称"})
     description = Column(Text, nullable=True, info={"description": "步骤描述"})
-    testcase_id = Column(CHAR(36), ForeignKey("testcases.id"), nullable=False)
-    interface_id = Column(CHAR(36), ForeignKey("interfaces.id"), nullable=False)
+    testcase_id = Column(CHAR(36), ForeignKey("testcases.id"), nullable=False, index=True)
+    interface_id = Column(CHAR(36), ForeignKey("interfaces.id"), nullable=False, index=True)
     
     # 请求配置
     headers = Column(JSON, nullable=True, info={"description": "请求头配置"})

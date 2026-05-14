@@ -37,8 +37,9 @@ export function requestVerifyToken(email) {
 // 验证邮箱
 export function verifyEmail(token) {
   return request({
-    url: `/auth/verify?token=${encodeURIComponent(token)}`,
-    method: 'post'
+    url: '/auth/verify',
+    method: 'post',
+    data: { token }
   })
 }
 

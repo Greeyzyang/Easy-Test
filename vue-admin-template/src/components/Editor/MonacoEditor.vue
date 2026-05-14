@@ -1,10 +1,12 @@
 <template>
-  <div ref="editorContainer" class="monaco-editor-container"></div>
+  <div ref="editorContainer" class="monaco-editor-container">
+    <div v-if="loading" class="monaco-loading">
+      <i class="el-icon-loading"></i> 编辑器加载中...
+    </div>
+  </div>
 </template>
 
 <script>
-import * as monaco from 'monaco-editor'
-
 export default {
   name: 'MonacoEditor',
   props: {
@@ -23,7 +25,9 @@ export default {
   },
   data() {
     return {
-      editor: null
+      editor: null,
+      monaco: null,
+      loading: true
     }
   },
   watch: {
@@ -34,7 +38,7 @@ export default {
     },
     language(newValue) {
       if (this.editor) {
-        monaco.editor.setModelLanguage(this.editor.getModel(), newValue)
+        this.monaco.editor.setModelLanguage(this.editor.getModel(), newValue)
       }
     }
   },
@@ -47,7 +51,11 @@ export default {
     }
   },
   methods: {
-    initMonaco() {
+    async initMonaco() {
+      // Dynamically import only the required parts of monaco-editor
+      const monaco = await import('monaco-editor/esm/vs/editor/editor.api')
+      this.monaco = monaco
+
       const defaultOptions = {
         value: this.value,
         language: this.language,
@@ -67,6 +75,8 @@ export default {
         ...this.options
       })
 
+      this.loading = false
+
       this.editor.onDidChangeModelContent(() => {
         const value = this.editor.getValue()
         this.$emit('input', value)
@@ -81,5 +91,19 @@ export default {
 .monaco-editor-container {
   width: 100%;
   height: 100%;
+  position: relative;
+}
+.monaco-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1e1e1e;
+  color: #ccc;
+  font-size: 14px;
 }
 </style> 
