@@ -1,11 +1,12 @@
 FROM node:16-alpine AS build
+RUN corepack enable && corepack prepare npm@latest --activate
 WORKDIR /app
 COPY vue-admin-template/package.json ./vue-admin-template/
-RUN cd vue-admin-template && npm install
+RUN cd vue-admin-template && npm install --legacy-peer-deps
 COPY vue-admin-template ./vue-admin-template
 RUN cd vue-admin-template && npm run build:prod
 
-FROM python:3.11-slim
+FROM python:3.13-slim
 WORKDIR /app
 COPY --from=build /app/vue-admin-template/dist ./dist
 EXPOSE 8080
