@@ -56,6 +56,7 @@ vue-admin-template/node_modules/
 vue-admin-template/dist/
 vue-admin-template/.cache/
 vue-admin-template/.temp/
+.nvmrc
 
 # Trae IDE
 .trae/
